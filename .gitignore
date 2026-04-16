@@ -1,0 +1,14 @@
+# Binary
+sandbar
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Test
+coverage.out

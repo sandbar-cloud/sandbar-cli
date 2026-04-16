@@ -1,0 +1,128 @@
+package client
+
+import "time"
+
+// --- Request types ---
+
+type CreateSiteRequest struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+type CreateDeployRequest struct {
+	Message      string         `json:"message,omitempty"`
+	Branch       string         `json:"branch,omitempty"`
+	CommitSHA    string         `json:"commit_sha,omitempty"`
+	FileManifest []FileEntry    `json:"file_manifest"`
+	Redirects    []RedirectRule `json:"redirect_rules,omitempty"`
+	Headers      []HeaderRule   `json:"header_rules,omitempty"`
+}
+
+type FileEntry struct {
+	Path string `json:"path"`
+	Hash string `json:"hash"`
+	Size int64  `json:"size"`
+}
+
+type AddDomainRequest struct {
+	Hostname string `json:"hostname"`
+}
+
+type RedirectRule struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Status int    `json:"status"`
+}
+
+type HeaderRule struct {
+	Pattern string            `json:"pattern"`
+	Headers map[string]string `json:"headers"`
+}
+
+// --- Response types ---
+
+type Site struct {
+	Slug           string    `json:"slug"`
+	Name           string    `json:"name"`
+	ActiveDeployID string    `json:"active_deploy_id"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type CreateDeployResponse struct {
+	DeployID     string       `json:"deploy_id"`
+	Uploads      []UploadInfo `json:"uploads"`
+	Skipped      []string     `json:"skipped"`
+	SkippedCount int          `json:"skipped_count"`
+	UploadCount  int          `json:"upload_count"`
+}
+
+type UploadInfo struct {
+	Path      string `json:"path"`
+	UploadURL string `json:"upload_url"`
+}
+
+type Deploy struct {
+	ID          string     `json:"id"`
+	SiteSlug    string     `json:"site_slug"`
+	Status      string     `json:"status"`
+	FileCount   int        `json:"file_count"`
+	TotalBytes  int64      `json:"total_bytes"`
+	Message     string     `json:"message"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ActivatedAt *time.Time `json:"activated_at,omitempty"`
+}
+
+type Domain struct {
+	ID                 string     `json:"id"`
+	Hostname           string     `json:"hostname"`
+	VerificationStatus string     `json:"verification_status"`
+	CertificateStatus  string     `json:"certificate_status"`
+	CreatedAt          time.Time  `json:"created_at"`
+	VerifiedAt         *time.Time `json:"verified_at,omitempty"`
+}
+
+type AddDomainResponse struct {
+	Domain          Domain  `json:"domain"`
+	DNSInstructions DNSInfo `json:"dns_instructions"`
+}
+
+type DNSInfo struct {
+	RecordType  string `json:"record_type"`
+	RecordName  string `json:"record_name"`
+	RecordValue string `json:"record_value"`
+}
+
+type APIError struct {
+	Message    string `json:"message"`
+	Detail     string `json:"detail"`
+	Code       string `json:"code,omitempty"`
+	StatusCode int    `json:"-"`
+}
+
+func (e *APIError) Error() string {
+	if e.Detail != "" {
+		return e.Detail
+	}
+	return e.Message
+}
+
+type SearchResponse[T any] struct {
+	Data       []T `json:"data"`
+	TotalCount int `json:"total_count"`
+}
+
+// --- Device auth types ---
+
+type DeviceCodeResponse struct {
+	DeviceCode   string `json:"device_code"`
+	AuthorizeURL string `json:"authorize_url"`
+	ExpiresIn    int    `json:"expires_in"`
+	Interval     int    `json:"interval"`
+}
+
+type DeviceTokenResponse struct {
+	Token     string `json:"token,omitempty"`
+	Status    string `json:"status"`
+	ExpiresIn int    `json:"expires_in,omitempty"`
+}

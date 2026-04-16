@@ -1,0 +1,35 @@
+version: 2
+
+builds:
+  - main: .
+    binary: sandbar
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "sandbar_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+brews:
+  - repository:
+      owner: mataki-dev
+      name: homebrew-tap
+    name: sandbar
+    homepage: "https://sandbar.cloud"
+    description: "Deploy static sites to Sandbar"
+    install: |
+      bin.install "sandbar"
+
+release:
+  github:
+    owner: mataki-dev
+    name: sandbar-cli

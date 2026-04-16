@@ -1,0 +1,197 @@
+package config_test
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/mataki-dev/sandbar-cli/internal/config"
+)
+
+func writeFile(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+}
+
+func TestLoadProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), `
+[site]
+name = "my-site"
+build_dir = "dist"
+framework = "vite"
+
+[deploy]
+auto_activate = true
+message_from_git = true
+
+[preview]
+default_expiry = "7d"
+`)
+
+	cfg, err := config.LoadProject(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Site.Name != "my-site" {
+		t.Errorf("Site.Name = %q, want %q", cfg.Site.Name, "my-site")
+	}
+	if cfg.Site.BuildDir != "dist" {
+		t.Errorf("Site.BuildDir = %q, want %q", cfg.Site.BuildDir, "dist")
+	}
+	if cfg.Site.Framework != "vite" {
+		t.Errorf("Site.Framework = %q, want %q", cfg.Site.Framework, "vite")
+	}
+	if !cfg.Deploy.AutoActivate {
+		t.Error("Deploy.AutoActivate = false, want true")
+	}
+	if !cfg.Deploy.MessageFromGit {
+		t.Error("Deploy.MessageFromGit = false, want true")
+	}
+	if cfg.Preview.DefaultExpiry != "7d" {
+		t.Errorf("Preview.DefaultExpiry = %q, want %q", cfg.Preview.DefaultExpiry, "7d")
+	}
+}
+
+func TestLoadProjectConfig_NotFound(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := config.LoadProject(dir)
+	if err == nil {
+		t.Fatal("expected error for missing config, got nil")
+	}
+}
+
+func TestResolveToken_EnvOverridesFile(t *testing.T) {
+	globalDir := t.TempDir()
+	writeFile(t, filepath.Join(globalDir, "config.toml"), `
+[auth]
+token = "file-key-xyz"
+`)
+
+	t.Setenv("SANDBAR_TOKEN", "env-key-abc")
+
+	key, err := config.ResolveToken(globalDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if key != "env-key-abc" {
+		t.Errorf("key = %q, want %q", key, "env-key-abc")
+	}
+}
+
+func TestResolveToken_FromGlobalConfig(t *testing.T) {
+	globalDir := t.TempDir()
+	writeFile(t, filepath.Join(globalDir, "config.toml"), `
+[auth]
+token = "file-key-xyz"
+`)
+
+	t.Setenv("SANDBAR_TOKEN", "")
+
+	key, err := config.ResolveToken(globalDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if key != "file-key-xyz" {
+		t.Errorf("key = %q, want %q", key, "file-key-xyz")
+	}
+}
+
+func TestResolveToken_NoneFound(t *testing.T) {
+	globalDir := t.TempDir()
+
+	t.Setenv("SANDBAR_TOKEN", "")
+
+	_, err := config.ResolveToken(globalDir)
+	if err == nil {
+		t.Fatal("expected error when no token found, got nil")
+	}
+}
+
+func TestLoadProjectConfig_WithRedirectsAndHeaders(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), `
+[site]
+name = "site-redirect-test"
+build_dir = "public"
+
+[[redirects]]
+from = "/old-path"
+to = "/new-path"
+status = 301
+
+[[redirects]]
+from = "/gone"
+to = "/replacement"
+status = 302
+
+[[headers]]
+for = "/assets/*"
+[headers.values]
+Cache-Control = "public, max-age=31536000"
+X-Content-Type-Options = "nosniff"
+
+[[headers]]
+for = "/*"
+[headers.values]
+X-Frame-Options = "DENY"
+`)
+
+	cfg, err := config.LoadProject(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.Redirects) != 2 {
+		t.Fatalf("len(Redirects) = %d, want 2", len(cfg.Redirects))
+	}
+
+	r := cfg.Redirects[0]
+	if r.From != "/old-path" {
+		t.Errorf("redirect[0].From = %q, want %q", r.From, "/old-path")
+	}
+	if r.To != "/new-path" {
+		t.Errorf("redirect[0].To = %q, want %q", r.To, "/new-path")
+	}
+	if r.Status != 301 {
+		t.Errorf("redirect[0].Status = %d, want 301", r.Status)
+	}
+
+	r2 := cfg.Redirects[1]
+	if r2.From != "/gone" {
+		t.Errorf("redirect[1].From = %q, want %q", r2.From, "/gone")
+	}
+	if r2.Status != 302 {
+		t.Errorf("redirect[1].Status = %d, want 302", r2.Status)
+	}
+
+	if len(cfg.Headers) != 2 {
+		t.Fatalf("len(Headers) = %d, want 2", len(cfg.Headers))
+	}
+
+	h := cfg.Headers[0]
+	if h.For != "/assets/*" {
+		t.Errorf("headers[0].For = %q, want %q", h.For, "/assets/*")
+	}
+	if h.Values["Cache-Control"] != "public, max-age=31536000" {
+		t.Errorf("Cache-Control = %q, want %q", h.Values["Cache-Control"], "public, max-age=31536000")
+	}
+	if h.Values["X-Content-Type-Options"] != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want %q", h.Values["X-Content-Type-Options"], "nosniff")
+	}
+
+	h2 := cfg.Headers[1]
+	if h2.For != "/*" {
+		t.Errorf("headers[1].For = %q, want %q", h2.For, "/*")
+	}
+	if h2.Values["X-Frame-Options"] != "DENY" {
+		t.Errorf("X-Frame-Options = %q, want %q", h2.Values["X-Frame-Options"], "DENY")
+	}
+}
