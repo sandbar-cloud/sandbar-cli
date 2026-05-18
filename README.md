@@ -615,4 +615,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md). By participating, you agree to the
 
 ## License
 
-[MIT](./LICENSE) © 2026 Mataki
+[MIT](./LICENSE) © 2026 Mataki Labs LLC
