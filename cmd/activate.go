@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/mataki-dev/sandbar-cli/internal/client"
 	"github.com/mataki-dev/sandbar-cli/internal/output"
 )
 
@@ -27,7 +28,7 @@ func (cmd *ActivateCmd) Run(globals *Globals) error {
 
 	site, err := c.GetSite(slug)
 	if err == nil {
-		fmt.Printf("  URL: https://%s.sandbar.cloud\n", site.Slug)
+		fmt.Printf("  URL: %s\n", client.LiveURL(site.Slug))
 	}
 	return nil
 }

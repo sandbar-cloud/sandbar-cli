@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"runtime"
 
+	"github.com/mataki-dev/sandbar-cli/internal/client"
 	"github.com/mataki-dev/sandbar-cli/internal/output"
 )
 
@@ -27,9 +28,9 @@ func (cmd *OpenCmd) Run(globals *Globals) error {
 	var url string
 	switch {
 	case cmd.Console:
-		url = fmt.Sprintf("https://console.sandbar.cloud/sites/%s", site.Slug)
+		url = client.ConsoleSiteURL(site.Slug)
 	default:
-		url = fmt.Sprintf("https://%s.sandbar.cloud", site.Slug)
+		url = client.LiveURL(site.Slug)
 	}
 
 	fmt.Printf("  Opening %s\n", output.Dim.Render(url))
