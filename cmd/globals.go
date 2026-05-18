@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/mataki-dev/sandbar-cli/internal/client"
-	"github.com/mataki-dev/sandbar-cli/internal/config"
+	"github.com/sandbar-cloud/sandbar-cli/internal/client"
+	"github.com/sandbar-cloud/sandbar-cli/internal/config"
 )
 
 type Globals struct {

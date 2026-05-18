@@ -5,8 +5,8 @@ import (
 	"os/exec"
 	"runtime"
 
-	"github.com/mataki-dev/sandbar-cli/internal/client"
-	"github.com/mataki-dev/sandbar-cli/internal/output"
+	"github.com/sandbar-cloud/sandbar-cli/internal/client"
+	"github.com/sandbar-cloud/sandbar-cli/internal/output"
 )
 
 type OpenCmd struct {

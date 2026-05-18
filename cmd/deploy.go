@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/mataki-dev/sandbar-cli/internal/client"
-	"github.com/mataki-dev/sandbar-cli/internal/config"
-	"github.com/mataki-dev/sandbar-cli/internal/git"
-	"github.com/mataki-dev/sandbar-cli/internal/hasher"
-	"github.com/mataki-dev/sandbar-cli/internal/output"
-	"github.com/mataki-dev/sandbar-cli/internal/uploader"
+	"github.com/sandbar-cloud/sandbar-cli/internal/client"
+	"github.com/sandbar-cloud/sandbar-cli/internal/config"
+	"github.com/sandbar-cloud/sandbar-cli/internal/git"
+	"github.com/sandbar-cloud/sandbar-cli/internal/hasher"
+	"github.com/sandbar-cloud/sandbar-cli/internal/output"
+	"github.com/sandbar-cloud/sandbar-cli/internal/uploader"
 )
 
 type DeployCmd struct {
