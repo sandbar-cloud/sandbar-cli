@@ -224,9 +224,9 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 		return nil
 	}
 	fmt.Printf("  Deploy: %s\n", output.Bold.Render(resp.DeployID))
-	fmt.Printf("  URL:    %s\n", output.Bold.Render("https://"+site.Slug+".sandbar.cloud"))
+	fmt.Printf("  URL:    %s\n", output.Bold.Render("https://"+site.Slug+".on.sandbar.cloud"))
 	if branch != "" && branch != "main" {
-		fmt.Printf("  Preview: %s\n", output.Bold.Render("https://"+branch+"--"+site.Slug+".sandbar.cloud"))
+		fmt.Printf("  Preview: %s\n", output.Bold.Render("https://"+branch+"--"+site.Slug+".on.sandbar.cloud"))
 	}
 	return nil
 }

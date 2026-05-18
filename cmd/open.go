@@ -27,9 +27,9 @@ func (cmd *OpenCmd) Run(globals *Globals) error {
 	var url string
 	switch {
 	case cmd.Console:
-		url = fmt.Sprintf("https://console.sandbar.cloud/sites/%s", site.Slug)
+		url = fmt.Sprintf("https://app.sandbar.cloud/sites/%s", site.Slug)
 	default:
-		url = fmt.Sprintf("https://%s.sandbar.cloud", site.Slug)
+		url = fmt.Sprintf("https://%s.on.sandbar.cloud", site.Slug)
 	}
 
 	fmt.Printf("  Opening %s\n", output.Dim.Render(url))

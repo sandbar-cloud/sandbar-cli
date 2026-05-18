@@ -27,7 +27,7 @@ func (cmd *ActivateCmd) Run(globals *Globals) error {
 
 	site, err := c.GetSite(slug)
 	if err == nil {
-		fmt.Printf("  URL: https://%s.sandbar.cloud\n", site.Slug)
+		fmt.Printf("  URL: https://%s.on.sandbar.cloud\n", site.Slug)
 	}
 	return nil
 }

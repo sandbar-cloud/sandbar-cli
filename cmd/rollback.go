@@ -58,6 +58,6 @@ func (cmd *RollbackCmd) Run(globals *Globals) error {
 		return err
 	}
 	sp.Stop(fmt.Sprintf("Rolled back to %s", prev))
-	fmt.Printf("  URL: https://%s.sandbar.cloud\n", site.Slug)
+	fmt.Printf("  URL: https://%s.on.sandbar.cloud\n", site.Slug)
 	return nil
 }
