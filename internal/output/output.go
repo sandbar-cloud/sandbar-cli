@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-isatty"
 )
 
 // Styles are exported lipgloss styles for use by commands.
@@ -80,16 +81,29 @@ func (m spinnerModel) View() string {
 }
 
 // Spinner wraps a bubbletea program to provide a simple start/stop/fail API.
+// In non-TTY environments (CI, redirected stderr), it falls back to plain
+// stderr prints so output isn't swallowed.
 type Spinner struct {
-	program    *tea.Program
-	wg         sync.WaitGroup
-	cancelled  bool
-	CancelledC chan struct{} // closed when user hits Ctrl+C
+	interactive bool
+
+	// interactive=true path:
+	program   *tea.Program
+	wg        sync.WaitGroup
+	cancelled bool
+
+	// CancelledC is closed when the user hits Ctrl+C. Never fires in
+	// non-interactive mode.
+	CancelledC chan struct{}
 }
 
 // NewSpinner starts a spinner with the given message. It renders to stderr.
 func NewSpinner(msg string) *Spinner {
-	s := spinner.New(spinner.WithSpinner(spinner.Dot))
+	if !isatty.IsTerminal(os.Stderr.Fd()) {
+		fmt.Fprintf(os.Stderr, "  %s\n", msg)
+		return &Spinner{interactive: false, CancelledC: make(chan struct{})}
+	}
+
+	s := spinner.New(spinner.WithSpinner(spinner.MiniDot))
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 
 	m := spinnerModel{
@@ -98,7 +112,7 @@ func NewSpinner(msg string) *Spinner {
 	}
 
 	p := tea.NewProgram(m, tea.WithOutput(os.Stderr))
-	sp := &Spinner{program: p, CancelledC: make(chan struct{})}
+	sp := &Spinner{interactive: true, program: p, CancelledC: make(chan struct{})}
 
 	sp.wg.Add(1)
 	go func() {
@@ -115,23 +129,38 @@ func NewSpinner(msg string) *Spinner {
 
 // Cancelled returns true if the user pressed Ctrl+C while the spinner was active.
 func (s *Spinner) Cancelled() bool {
+	if !s.interactive {
+		return false
+	}
 	s.wg.Wait()
 	return s.cancelled
 }
 
 // Stop stops the spinner and displays a green checkmark with the result message.
 func (s *Spinner) Stop(result string) {
+	if !s.interactive {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", Green.Render("✓"), result)
+		return
+	}
 	s.program.Send(doneMsg{result: result, failed: false})
 	s.wg.Wait()
 }
 
 // UpdateMsg updates the spinner's in-progress message without stopping it.
 func (s *Spinner) UpdateMsg(msg string) {
+	if !s.interactive {
+		fmt.Fprintf(os.Stderr, "  %s\n", msg)
+		return
+	}
 	s.program.Send(updateMsgMsg{msg: msg})
 }
 
 // Fail stops the spinner and displays a red ✗ mark with the result message.
 func (s *Spinner) Fail(result string) {
+	if !s.interactive {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", Red.Render("✗"), result)
+		return
+	}
 	s.program.Send(doneMsg{result: result, failed: true})
 	s.wg.Wait()
 }
