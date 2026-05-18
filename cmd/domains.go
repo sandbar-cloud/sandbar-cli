@@ -15,7 +15,7 @@ type DomainsCmd struct {
 	Add    DomainsAddCmd    `cmd:"" help:"Add a custom domain."`
 	List   DomainsListCmd   `cmd:"" help:"List domains."`
 	Verify DomainsVerifyCmd `cmd:"" help:"Re-check domain verification."`
-	Remove DomainsRemoveCmd `cmd:"" help:"Remove a custom domain."`
+	Delete DomainsDeleteCmd `cmd:"" help:"Delete a custom domain."`
 }
 
 type DomainsAddCmd struct {
@@ -108,12 +108,12 @@ func (cmd *DomainsVerifyCmd) Run(globals *Globals) error {
 	return fmt.Errorf("domain %q not found on this site", cmd.Hostname)
 }
 
-type DomainsRemoveCmd struct {
+type DomainsDeleteCmd struct {
 	Hostname string `arg:"" help:"Domain hostname to remove."`
 	Yes      bool   `help:"Skip confirmation." short:"y"`
 }
 
-func (cmd *DomainsRemoveCmd) Run(globals *Globals) error {
+func (cmd *DomainsDeleteCmd) Run(globals *Globals) error {
 	slug, err := globals.SiteSlug()
 	if err != nil {
 		return err
@@ -137,7 +137,7 @@ func (cmd *DomainsRemoveCmd) Run(globals *Globals) error {
 	}
 
 	if !cmd.Yes {
-		fmt.Printf("Remove %s from %s? [y/N] ", output.Bold.Render(cmd.Hostname), slug)
+		fmt.Printf("Delete %s from %s? [y/N] ", output.Bold.Render(cmd.Hostname), slug)
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')
 		if !strings.HasPrefix(strings.TrimSpace(strings.ToLower(answer)), "y") {
@@ -146,12 +146,12 @@ func (cmd *DomainsRemoveCmd) Run(globals *Globals) error {
 		}
 	}
 
-	sp := output.NewSpinner("Removing...")
+	sp := output.NewSpinner("Deleting...")
 	if err := c.DeleteDomain(slug, target.ID); err != nil {
-		sp.Fail("Remove failed")
+		sp.Fail("Delete failed")
 		return err
 	}
-	sp.Stop(fmt.Sprintf("Removed %s", cmd.Hostname))
+	sp.Stop(fmt.Sprintf("Deleted %s", cmd.Hostname))
 	return nil
 }
 

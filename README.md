@@ -328,12 +328,12 @@ Re-check verification status for a domain.
 sandbar domains verify example.com
 ```
 
-#### `sandbar domains remove <hostname>`
+#### `sandbar domains delete <hostname>`
 
-Remove a custom domain. Prompts for confirmation.
+Delete a custom domain. Prompts for confirmation.
 
 ```sh
-sandbar domains remove example.com [flags]
+sandbar domains delete example.com [flags]
 ```
 
 | Flag    | Short | Description       |
