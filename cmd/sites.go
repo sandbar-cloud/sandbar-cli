@@ -35,7 +35,7 @@ func (cmd *SitesListCmd) Run(globals *Globals) error {
 	for i, s := range sites {
 		rows[i] = []string{
 			s.Slug,
-			fmt.Sprintf("https://%s.on.sandbar.cloud", s.Slug),
+			client.LiveURL(s.Slug),
 			output.FormatTimeAgo(s.UpdatedAt),
 		}
 	}
@@ -62,7 +62,7 @@ func (cmd *SitesInfoCmd) Run(globals *Globals) error {
 
 	fmt.Printf("  Name:           %s\n", output.Bold.Render(site.Name))
 	fmt.Printf("  Slug:           %s\n", site.Slug)
-	fmt.Printf("  Live URL:       https://%s.on.sandbar.cloud\n", site.Slug)
+	fmt.Printf("  Live URL:       %s\n", client.LiveURL(site.Slug))
 	if site.ActiveDeployID != "" {
 		activeDeploy, err := c.GetDeploy(slug, site.ActiveDeployID)
 		if err == nil && activeDeploy.ActivatedAt != nil {
@@ -130,8 +130,8 @@ func (cmd *SitesDeleteCmd) Run(globals *Globals) error {
 	}
 
 	if !cmd.Yes {
-		fmt.Printf("This will permanently delete %s (https://%s.on.sandbar.cloud)\n",
-			output.Bold.Render(site.Name), site.Slug)
+		fmt.Printf("This will permanently delete %s (%s)\n",
+			output.Bold.Render(site.Name), client.LiveURL(site.Slug))
 		fmt.Printf("Type the slug %q to confirm: ", site.Slug)
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mataki-dev/sandbar-cli/internal/client"
 	"github.com/mataki-dev/sandbar-cli/internal/output"
 )
 
@@ -58,6 +59,6 @@ func (cmd *RollbackCmd) Run(globals *Globals) error {
 		return err
 	}
 	sp.Stop(fmt.Sprintf("Rolled back to %s", prev))
-	fmt.Printf("  URL: https://%s.on.sandbar.cloud\n", site.Slug)
+	fmt.Printf("  URL: %s\n", client.LiveURL(site.Slug))
 	return nil
 }
