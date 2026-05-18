@@ -154,9 +154,17 @@ func doUpload(item UploadItem, httpClient *http.Client, onProgress func(uploaded
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
+		// GCS returns an XML error body on signed-URL rejections; the
+		// status code alone (e.g. 400 "Bad Request") gives no debug
+		// signal. Read up to 4 KB and surface it.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = http.StatusText(resp.StatusCode)
+		}
 		return &uploadError{
 			statusCode: resp.StatusCode,
-			message:    http.StatusText(resp.StatusCode),
+			message:    msg,
 		}
 	}
 
