@@ -109,7 +109,10 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 		headers = append(headers, client.HeaderRule{Pattern: rule.For, Headers: rule.Values})
 	}
 
-	// Create deploy
+	// Create deploy. The API checks every file against existing blobs
+	// and mints signed upload URLs — for large manifests this takes
+	// a few seconds, so show a spinner.
+	sp = output.NewSpinner("Preparing upload...")
 	resp, err := c.CreateDeploy(slug, client.CreateDeployRequest{
 		Message:      message,
 		Branch:       branch,
@@ -119,7 +122,13 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 		Headers:      headers,
 	})
 	if err != nil {
+		sp.Fail("Failed to prepare upload")
 		return err
+	}
+	if len(resp.Uploads) > 0 {
+		sp.Stop(fmt.Sprintf("Prepared %d new files (%d reused)", len(resp.Uploads), resp.SkippedCount))
+	} else {
+		sp.Stop(fmt.Sprintf("All %d files already on Sandbar", resp.SkippedCount))
 	}
 
 	// Upload changed files
