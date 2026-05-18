@@ -9,7 +9,7 @@ Command-line interface for deploying static sites to [Sandbar](https://sandbar.c
 ### Homebrew (macOS and Linux)
 
 ```sh
-brew install mataki-dev/tap/sandbar
+brew install sandbar-cloud/tap/sandbar
 ```
 
 ### From releases
@@ -269,6 +269,33 @@ Show details for the site in the current directory, including active deploy, cus
 sandbar sites info
 ```
 
+#### `sandbar sites update`
+
+Update the site in the current directory.
+
+```sh
+sandbar sites update [flags]
+```
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--name` | `-n` | New display name |
+| `--production-branch` | | Production branch name |
+
+At least one flag is required.
+
+#### `sandbar sites delete`
+
+Delete the site in the current directory. Prompts for confirmation by asking you to retype the slug.
+
+```sh
+sandbar sites delete [flags]
+```
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--yes` | `-y` | Skip confirmation |
+
 ---
 
 ### `sandbar domains`
@@ -300,6 +327,18 @@ Re-check verification status for a domain.
 ```sh
 sandbar domains verify example.com
 ```
+
+#### `sandbar domains delete <hostname>`
+
+Delete a custom domain. Prompts for confirmation.
+
+```sh
+sandbar domains delete example.com [flags]
+```
+
+| Flag    | Short | Description       |
+|---------|-------|-------------------|
+| `--yes` | `-y`  | Skip confirmation |
 
 ---
 

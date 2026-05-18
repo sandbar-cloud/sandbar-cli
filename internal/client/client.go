@@ -209,6 +209,18 @@ func (c *Client) SearchSites(query string) (*SearchResponse[Site], error) {
 	return &resp, nil
 }
 
+func (c *Client) UpdateSite(slug string, req UpdateSiteRequest) (*Site, error) {
+	var site Site
+	if err := c.do(http.MethodPatch, "/sites/"+slug, req, &site); err != nil {
+		return nil, err
+	}
+	return &site, nil
+}
+
+func (c *Client) DeleteSite(slug string) error {
+	return c.do(http.MethodDelete, "/sites/"+slug, nil, nil)
+}
+
 // --- Deploys ---
 
 func (c *Client) CreateDeploy(slug string, req CreateDeployRequest) (*CreateDeployResponse, error) {
@@ -259,5 +271,9 @@ func (c *Client) ListDomains(slug string) (*SearchResponse[Domain], error) {
 		return nil, err
 	}
 	return &resp, nil
+}
+
+func (c *Client) DeleteDomain(slug, domainID string) error {
+	return c.do(http.MethodDelete, "/sites/"+slug+"/domains/"+domainID, nil, nil)
 }
 

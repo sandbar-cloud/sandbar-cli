@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/mataki-dev/sandbar-cli/internal/client"
@@ -12,6 +15,7 @@ type DomainsCmd struct {
 	Add    DomainsAddCmd    `cmd:"" help:"Add a custom domain."`
 	List   DomainsListCmd   `cmd:"" help:"List domains."`
 	Verify DomainsVerifyCmd `cmd:"" help:"Re-check domain verification."`
+	Delete DomainsDeleteCmd `cmd:"" help:"Delete a custom domain."`
 }
 
 type DomainsAddCmd struct {
@@ -102,6 +106,53 @@ func (cmd *DomainsVerifyCmd) Run(globals *Globals) error {
 	}
 	sp.Fail("Domain not found")
 	return fmt.Errorf("domain %q not found on this site", cmd.Hostname)
+}
+
+type DomainsDeleteCmd struct {
+	Hostname string `arg:"" help:"Domain hostname to remove."`
+	Yes      bool   `help:"Skip confirmation." short:"y"`
+}
+
+func (cmd *DomainsDeleteCmd) Run(globals *Globals) error {
+	slug, err := globals.SiteSlug()
+	if err != nil {
+		return err
+	}
+	c := globals.Client()
+
+	resp, err := c.ListDomains(slug)
+	if err != nil {
+		return err
+	}
+
+	var target *client.Domain
+	for i, d := range resp.Data {
+		if d.Hostname == cmd.Hostname {
+			target = &resp.Data[i]
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("domain %q not found on this site", cmd.Hostname)
+	}
+
+	if !cmd.Yes {
+		fmt.Printf("Delete %s from %s? [y/N] ", output.Bold.Render(cmd.Hostname), slug)
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		if !strings.HasPrefix(strings.TrimSpace(strings.ToLower(answer)), "y") {
+			fmt.Println("Aborted.")
+			return nil
+		}
+	}
+
+	sp := output.NewSpinner("Deleting...")
+	if err := c.DeleteDomain(slug, target.ID); err != nil {
+		sp.Fail("Delete failed")
+		return err
+	}
+	sp.Stop(fmt.Sprintf("Deleted %s", cmd.Hostname))
+	return nil
 }
 
 func formatVerification(status string) string {

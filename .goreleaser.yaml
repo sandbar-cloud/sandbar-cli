@@ -21,7 +21,7 @@ checksum:
 
 brews:
   - repository:
-      owner: mataki-dev
+      owner: sandbar-cloud
       name: homebrew-tap
     name: sandbar
     homepage: "https://sandbar.cloud"
@@ -31,5 +31,8 @@ brews:
 
 release:
   github:
-    owner: mataki-dev
+    owner: sandbar-cloud
     name: sandbar-cli
+  # semantic-release creates the GitHub Release first; goreleaser
+  # appends archives + checksums to that existing release.
+  mode: append
