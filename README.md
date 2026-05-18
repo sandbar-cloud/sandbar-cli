@@ -604,3 +604,15 @@ make build VERSION=1.2.3
 ```
 
 The binary embeds the version string at link time via `-X main.version=$(VERSION)`. The version is included in the `User-Agent` header sent to the API.
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md). By participating, you agree to the
+[Code of Conduct](./CODE_OF_CONDUCT.md). For security issues, follow
+[SECURITY.md](./SECURITY.md) — do not file public issues.
+
+## License
+
+[MIT](./LICENSE) © 2026 Mataki
