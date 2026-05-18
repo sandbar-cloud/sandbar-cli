@@ -1,0 +1,49 @@
+name: Deploy
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    name: Publish binaries + Homebrew formula
+    runs-on: ubuntu-latest
+    steps:
+      # mataki-robot[bot] is what semantic-release uses to cut releases
+      # and what we use to push the Homebrew formula to the (separate)
+      # sandbar-cloud/homebrew-tap repo. Default GITHUB_TOKEN can't
+      # write across repos, so mint an app token with contents:write
+      # scoped to both repos.
+      - name: Generate Robot App token
+        uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_PRIVATE_KEY }}
+          owner: sandbar-cloud
+          repositories: |
+            sandbar-cli
+            homebrew-tap
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false

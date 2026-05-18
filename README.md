@@ -9,7 +9,7 @@ Command-line interface for deploying static sites to [Sandbar](https://sandbar.c
 ### Homebrew (macOS and Linux)
 
 ```sh
-brew install mataki-dev/tap/sandbar
+brew install sandbar-cloud/tap/sandbar
 ```
 
 ### From releases
@@ -277,10 +277,10 @@ Update the site in the current directory.
 sandbar sites update [flags]
 ```
 
-| Flag                  | Short | Description            |
-|-----------------------|-------|------------------------|
-| `--name`              | `-n`  | New display name       |
-| `--production-branch` |       | Production branch name |
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--name` | `-n` | New display name |
+| `--production-branch` | | Production branch name |
 
 At least one flag is required.
 
@@ -292,9 +292,9 @@ Delete the site in the current directory. Prompts for confirmation by asking you
 sandbar sites delete [flags]
 ```
 
-| Flag    | Short | Description       |
-|---------|-------|-------------------|
-| `--yes` | `-y`  | Skip confirmation |
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--yes` | `-y` | Skip confirmation |
 
 ---
 
