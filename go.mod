@@ -1,4 +1,4 @@
-module github.com/mataki-dev/sandbar-cli
+module github.com/sandbar-cloud/sandbar-cli
 
 go 1.26.1
 

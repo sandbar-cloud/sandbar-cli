@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mataki-dev/sandbar-cli/internal/config"
+	"github.com/sandbar-cloud/sandbar-cli/internal/config"
 )
 
 func TestInitCmd_CreatesConfig(t *testing.T) {

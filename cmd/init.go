@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mataki-dev/sandbar-cli/internal/config"
-	"github.com/mataki-dev/sandbar-cli/internal/output"
+	"github.com/sandbar-cloud/sandbar-cli/internal/config"
+	"github.com/sandbar-cloud/sandbar-cli/internal/output"
 )
 
 type InitCmd struct {

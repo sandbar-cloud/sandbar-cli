@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mataki-dev/sandbar-cli/internal/config"
+	"github.com/sandbar-cloud/sandbar-cli/internal/config"
 )
 
 const (
@@ -276,4 +276,3 @@ func (c *Client) ListDomains(slug string) (*SearchResponse[Domain], error) {
 func (c *Client) DeleteDomain(slug, domainID string) error {
 	return c.do(http.MethodDelete, "/sites/"+slug+"/domains/"+domainID, nil, nil)
 }
-

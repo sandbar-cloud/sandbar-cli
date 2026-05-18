@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mataki-dev/sandbar-cli/cmd"
-	"github.com/mataki-dev/sandbar-cli/internal/client"
-	"github.com/mataki-dev/sandbar-cli/internal/config"
+	"github.com/sandbar-cloud/sandbar-cli/cmd"
+	"github.com/sandbar-cloud/sandbar-cli/internal/client"
+	"github.com/sandbar-cloud/sandbar-cli/internal/config"
 )
 
 func TestInitDeployActivateFlow(t *testing.T) {

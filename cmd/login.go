@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/mataki-dev/sandbar-cli/internal/client"
-	"github.com/mataki-dev/sandbar-cli/internal/config"
-	"github.com/mataki-dev/sandbar-cli/internal/output"
+	"github.com/sandbar-cloud/sandbar-cli/internal/client"
+	"github.com/sandbar-cloud/sandbar-cli/internal/config"
+	"github.com/sandbar-cloud/sandbar-cli/internal/output"
 )
 
 type LoginCmd struct{}
@@ -144,4 +144,3 @@ func (cmd *LoginCmd) loginDevice(globals *Globals) error {
 	sp.Fail("Login timed out")
 	return fmt.Errorf("authorization timed out after %d seconds", code.ExpiresIn)
 }
-

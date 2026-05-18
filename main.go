@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/alecthomas/kong"
-	"github.com/mataki-dev/sandbar-cli/cmd"
+	"github.com/sandbar-cloud/sandbar-cli/cmd"
 )
 
 var version = "dev"
