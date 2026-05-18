@@ -27,7 +27,7 @@ func (cmd *LoginCmd) Run(globals *Globals) error {
 func (cmd *LoginCmd) loginGitHubOIDC(globals *Globals) error {
 	// Request OIDC token from GitHub Actions runtime
 	requestURL := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL")
-	requestToken := os.Getenv("ACTIONS_RUNTIME_TOKEN")
+	requestToken := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
 
 	if requestURL == "" || requestToken == "" {
 		return fmt.Errorf("GitHub Actions OIDC not available. Ensure `permissions: id-token: write` is set in your workflow")
