@@ -28,6 +28,11 @@ type AddDomainRequest struct {
 	Hostname string `json:"hostname"`
 }
 
+type UpdateSiteRequest struct {
+	Name             *string `json:"name,omitempty"`
+	ProductionBranch *string `json:"production_branch,omitempty"`
+}
+
 type RedirectRule struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
