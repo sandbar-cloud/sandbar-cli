@@ -265,8 +265,8 @@ func (c *Client) AddDomain(slug string, req AddDomainRequest) (*AddDomainRespons
 	return &resp, nil
 }
 
-func (c *Client) ListDomains(slug string) (*SearchResponse[Domain], error) {
-	var resp SearchResponse[Domain]
+func (c *Client) ListDomains(slug string) (*ListResponse[Domain], error) {
+	var resp ListResponse[Domain]
 	if err := c.do(http.MethodGet, "/sites/"+slug+"/domains", nil, &resp); err != nil {
 		return nil, err
 	}

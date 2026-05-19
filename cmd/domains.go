@@ -56,7 +56,7 @@ func (cmd *DomainsListCmd) Run(globals *Globals) error {
 		return err
 	}
 
-	domains := resp.Data
+	domains := resp.Items
 	if len(domains) == 0 {
 		fmt.Println("No domains configured. Run `sandbar domains add <hostname>`.")
 		return nil
@@ -94,7 +94,7 @@ func (cmd *DomainsVerifyCmd) Run(globals *Globals) error {
 		return err
 	}
 
-	for _, d := range resp.Data {
+	for _, d := range resp.Items {
 		if d.Hostname == cmd.Hostname {
 			sp.Stop(fmt.Sprintf("%s  verification: %s  ssl: %s",
 				output.Bold.Render(d.Hostname),
@@ -126,9 +126,9 @@ func (cmd *DomainsDeleteCmd) Run(globals *Globals) error {
 	}
 
 	var target *client.Domain
-	for i, d := range resp.Data {
+	for i, d := range resp.Items {
 		if d.Hostname == cmd.Hostname {
-			target = &resp.Data[i]
+			target = &resp.Items[i]
 			break
 		}
 	}

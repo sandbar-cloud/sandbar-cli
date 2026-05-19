@@ -118,6 +118,14 @@ type SearchResponse[T any] struct {
 	HasMore    bool   `json:"has_more"`
 }
 
+// ListResponse is the unpaged-list envelope used by endpoints that
+// return every record in one shot (e.g. GET /sites/{slug}/domains).
+// Distinct from SearchResponse — the API serialises these as "items",
+// not "data".
+type ListResponse[T any] struct {
+	Items []T `json:"items"`
+}
+
 // --- Device auth types ---
 
 type DeviceCodeResponse struct {

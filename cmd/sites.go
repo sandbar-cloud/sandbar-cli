@@ -71,8 +71,8 @@ func (cmd *SitesInfoCmd) Run(globals *Globals) error {
 			fmt.Printf("  Active Deploy:  %s\n", site.ActiveDeployID)
 		}
 	}
-	if domains != nil && len(domains.Data) > 0 {
-		for _, d := range domains.Data {
+	if domains != nil && len(domains.Items) > 0 {
+		for _, d := range domains.Items {
 			fmt.Printf("  Domain:         %s (%s, SSL %s)\n", d.Hostname, d.VerificationStatus, d.CertificateStatus)
 		}
 	}
