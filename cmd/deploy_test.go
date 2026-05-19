@@ -119,7 +119,7 @@ func TestDeployCmd_FullFlow(t *testing.T) {
 	defer mu.Unlock()
 
 	want := []string{
-		"POST /sites",
+		"GET /sites/site_abc123",
 		"POST /sites/site_abc123/deploys",
 		"POST /sites/site_abc123/deploys/deploy_xyz/finalize",
 		"GET /sites/site_abc123/deploys/deploy_xyz",
