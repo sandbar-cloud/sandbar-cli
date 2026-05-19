@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 type DeployCmd struct {
 	Dir         string `help:"Build output directory." short:"d"`
 	NoActivate  bool   `help:"Upload without activating." name:"no-activate"`
+	SkipBuild   bool   `help:"Skip the configured build command." name:"skip-build" env:"SANDBAR_SKIP_BUILD"`
 	Message     string `help:"Deploy message." short:"m"`
 	Branch      string `help:"Branch name for branch deploys." short:"b"`
 	Concurrency int    `help:"Parallel upload workers." default:"8" short:"c"`
@@ -60,6 +63,12 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 		}
 	}
 	sp.Stop(fmt.Sprintf("Site: %s", slug))
+
+	// Run configured build command. Streams stdout/stderr live so the
+	// user sees their build tool's output as it runs.
+	if err := cmd.runBuild(cfg, workDir); err != nil {
+		return err
+	}
 
 	// Resolve message
 	message := cmd.Message
@@ -227,6 +236,29 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 	fmt.Printf("  URL:    %s\n", output.Bold.Render(client.LiveURL(site.Slug)))
 	if branch != "" && branch != "main" {
 		fmt.Printf("  Preview: %s\n", output.Bold.Render(client.PreviewURL(site.Slug, branch)))
+	}
+	return nil
+}
+
+// runBuild executes cfg.Build.Command in workDir, streaming output to
+// the terminal. Skips silently when there's no command configured or
+// --skip-build is set.
+func (cmd *DeployCmd) runBuild(cfg *config.ProjectConfig, workDir string) error {
+	if cfg.Build.Command == "" {
+		return nil
+	}
+	if cmd.SkipBuild {
+		fmt.Println(output.Dim.Render("  Skipping build (--skip-build)"))
+		return nil
+	}
+
+	fmt.Printf("  %s %s\n", output.Dim.Render("$"), cfg.Build.Command)
+	c := exec.Command("sh", "-c", cfg.Build.Command)
+	c.Dir = workDir
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("build failed: %w", err)
 	}
 	return nil
 }
