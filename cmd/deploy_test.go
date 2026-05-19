@@ -229,3 +229,114 @@ func TestDeployCmd_NoActivate(t *testing.T) {
 		t.Error("finalize endpoint was not called")
 	}
 }
+
+func TestMergeEnv_OverridesReplaceAndAppend(t *testing.T) {
+	base := []string{"PATH=/usr/bin", "HOME=/home/x", "FOO=keep"}
+	overrides := map[string]string{
+		"PATH":         "/override/bin",
+		"PUBLIC_APP_URL": "https://app.sandbar.cloud",
+	}
+	got := mergeEnv(base, overrides)
+
+	want := map[string]string{
+		"PATH":           "/override/bin",
+		"HOME":           "/home/x",
+		"FOO":            "keep",
+		"PUBLIC_APP_URL": "https://app.sandbar.cloud",
+	}
+	asMap := func(env []string) map[string]string {
+		m := map[string]string{}
+		for _, kv := range env {
+			for i := 0; i < len(kv); i++ {
+				if kv[i] == '=' {
+					m[kv[:i]] = kv[i+1:]
+					break
+				}
+			}
+		}
+		return m
+	}
+	gotMap := asMap(got)
+	for k, v := range want {
+		if gotMap[k] != v {
+			t.Errorf("%s = %q, want %q", k, gotMap[k], v)
+		}
+	}
+	if len(gotMap) != len(want) {
+		t.Errorf("len = %d, want %d (got=%v)", len(gotMap), len(want), gotMap)
+	}
+}
+
+func TestMergeEnv_EmptyOverridesReturnsBase(t *testing.T) {
+	base := []string{"A=1", "B=2"}
+	got := mergeEnv(base, nil)
+	if &got[0] != &base[0] {
+		// Same underlying slice — OK to share when no overrides.
+	}
+	if len(got) != 2 || got[0] != "A=1" || got[1] != "B=2" {
+		t.Errorf("got %v, want %v", got, base)
+	}
+}
+
+func TestRunBuild_InjectsEnvFromConfig(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.txt")
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{Command: "printf '%s' \"$PUBLIC_APP_URL\" > " + out},
+		Env: map[string]any{
+			"PUBLIC_APP_URL": "default-url",
+			"prod": map[string]any{
+				"PUBLIC_APP_URL": "https://app.sandbar.cloud",
+			},
+		},
+	}
+
+	cmd := &DeployCmd{Env: "prod"}
+	if err := cmd.runBuild(cfg, dir); err != nil {
+		t.Fatalf("runBuild: %v", err)
+	}
+
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read out: %v", err)
+	}
+	if got := string(data); got != "https://app.sandbar.cloud" {
+		t.Errorf("PUBLIC_APP_URL in build = %q, want %q", got, "https://app.sandbar.cloud")
+	}
+}
+
+func TestRunBuild_DefaultsAppliedWhenNoEnvFlag(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.txt")
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{Command: "printf '%s' \"$PUBLIC_APP_URL\" > " + out},
+		Env: map[string]any{
+			"PUBLIC_APP_URL": "default-url",
+		},
+	}
+
+	cmd := &DeployCmd{}
+	if err := cmd.runBuild(cfg, dir); err != nil {
+		t.Fatalf("runBuild: %v", err)
+	}
+
+	data, _ := os.ReadFile(out)
+	if string(data) != "default-url" {
+		t.Errorf("got %q, want %q", string(data), "default-url")
+	}
+}
+
+func TestRunBuild_SkipBuildShortCircuits(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{Command: "touch " + marker},
+	}
+	cmd := &DeployCmd{SkipBuild: true}
+	if err := cmd.runBuild(cfg, dir); err != nil {
+		t.Fatalf("runBuild: %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("build ran despite --skip-build")
+	}
+}

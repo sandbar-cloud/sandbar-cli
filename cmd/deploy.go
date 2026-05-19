@@ -19,6 +19,7 @@ type DeployCmd struct {
 	Dir         string `help:"Build output directory." short:"d"`
 	NoActivate  bool   `help:"Upload without activating." name:"no-activate"`
 	SkipBuild   bool   `help:"Skip the configured build command." name:"skip-build" env:"SANDBAR_SKIP_BUILD"`
+	Env         string `help:"Named environment to apply (matches [env.<name>] in sandbar config)." short:"e" env:"SANDBAR_ENV"`
 	Message     string `help:"Deploy message." short:"m"`
 	Branch      string `help:"Branch name for branch deploys." short:"b"`
 	Concurrency int    `help:"Parallel upload workers." default:"8" short:"c"`
@@ -78,6 +79,12 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 		}
 	}
 	sp.Stop(fmt.Sprintf("Site: %s", slug))
+
+	// If --env names a table, it must exist. Skipping this check would
+	// silently fall back to defaults on a typo'd flag.
+	if cmd.Env != "" && !cfg.HasEnv(cmd.Env) {
+		return fmt.Errorf("environment %q not defined in .sandbar/config.toml ([env.%s])", cmd.Env, cmd.Env)
+	}
 
 	// Run configured build command. Streams stdout/stderr live so the
 	// user sees their build tool's output as it runs.
@@ -257,7 +264,8 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 
 // runBuild executes cfg.Build.Command in workDir, streaming output to
 // the terminal. Skips silently when there's no command configured or
-// --skip-build is set.
+// --skip-build is set. Merges [env] defaults + [env.<cmd.Env>]
+// overrides on top of the inherited environment; later entries win.
 func (cmd *DeployCmd) runBuild(cfg *config.ProjectConfig, workDir string) error {
 	if cfg.Build.Command == "" {
 		return nil
@@ -267,15 +275,56 @@ func (cmd *DeployCmd) runBuild(cfg *config.ProjectConfig, workDir string) error 
 		return nil
 	}
 
+	if cmd.Env != "" {
+		fmt.Printf("  %s env=%s\n", output.Dim.Render("$"), cmd.Env)
+	}
 	fmt.Printf("  %s %s\n", output.Dim.Render("$"), cfg.Build.Command)
 	c := exec.Command("sh", "-c", cfg.Build.Command)
 	c.Dir = workDir
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
+	c.Env = mergeEnv(os.Environ(), cfg.EnvFor(cmd.Env))
 	if err := c.Run(); err != nil {
 		return fmt.Errorf("build failed: %w", err)
 	}
 	return nil
+}
+
+// mergeEnv returns base with overrides applied (overrides win). Keys
+// in overrides replace any same-name entry in base; new keys are
+// appended. The result is in the os/exec "KEY=VALUE" form.
+func mergeEnv(base []string, overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return base
+	}
+	out := make([]string, 0, len(base)+len(overrides))
+	seen := make(map[string]bool, len(overrides))
+	for _, kv := range base {
+		eq := -1
+		for i := 0; i < len(kv); i++ {
+			if kv[i] == '=' {
+				eq = i
+				break
+			}
+		}
+		if eq < 0 {
+			out = append(out, kv)
+			continue
+		}
+		k := kv[:eq]
+		if v, ok := overrides[k]; ok {
+			out = append(out, k+"="+v)
+			seen[k] = true
+		} else {
+			out = append(out, kv)
+		}
+	}
+	for k, v := range overrides {
+		if !seen[k] {
+			out = append(out, k+"="+v)
+		}
+	}
+	return out
 }
 
 func (cmd *DeployCmd) resolveBuildDir(cfg *config.ProjectConfig) string {
