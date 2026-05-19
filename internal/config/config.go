@@ -10,11 +10,17 @@ import (
 
 // ProjectConfig represents .sandbar/config.toml
 type ProjectConfig struct {
-	Site      SiteConfig                   `toml:"site"`
-	Deploy    DeployConfig                 `toml:"deploy"`
-	Preview   PreviewConfig                `toml:"preview"`
+	Site      SiteConfig     `toml:"site"`
+	Build     BuildConfig    `toml:"build"`
+	Deploy    DeployConfig   `toml:"deploy"`
+	Preview   PreviewConfig  `toml:"preview"`
 	Redirects []RedirectRule `toml:"redirects"`
 	Headers   []HeaderRule   `toml:"headers"`
+}
+
+type BuildConfig struct {
+	// Command runs before deploy. Empty = skip the build step.
+	Command string `toml:"command"`
 }
 
 type SiteConfig struct {

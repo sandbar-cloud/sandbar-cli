@@ -123,6 +123,7 @@ sandbar init --name my-site --dir out
 Deploy the site. On the first deploy, the site is created in Sandbar and the assigned site ID is written back to `.sandbar/config.toml`. Subsequent deploys skip site creation.
 
 The deploy process:
+
 1. Hashes all files in the build directory.
 2. Sends the manifest to the API, which returns only the files that need uploading.
 3. Uploads new or changed files in parallel.
@@ -391,6 +392,9 @@ name      = "my-site"
 build_dir = "dist"
 framework = "astro"         # Informational; set by auto-detection
 
+[build]
+command = "npm run build"   # Optional. Runs before deploy; skip with --skip-build
+
 [deploy]
 auto_activate   = true   # Activate the deploy immediately after upload
 message_from_git = true  # Use the git HEAD commit message as the deploy message
@@ -430,6 +434,7 @@ Cache-Control = "public, max-age=31536000, immutable"
 | `site.name` | string | Human-readable site name |
 | `site.build_dir` | string | Relative path to the build output directory |
 | `site.framework` | string | Framework name, set by auto-detection during `init` |
+| `build.command` | string | Shell command run before deploy (default: none). Bypass with `--skip-build` or `SANDBAR_SKIP_BUILD=1` |
 | `deploy.auto_activate` | bool | Activate immediately after upload (default: `true`) |
 | `deploy.message_from_git` | bool | Use git HEAD message as deploy message (default: `true`) |
 | `preview.default_expiry` | string | Default expiry duration for preview URLs (default: `7d`) |
