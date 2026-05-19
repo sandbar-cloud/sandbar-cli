@@ -50,16 +50,31 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 		return fmt.Errorf("no site name in .sandbar/config.toml. Run `sandbar init`")
 	}
 
-	// Ensure site exists — create it if not. Ignore conflict errors (site already exists).
+	// Ensure site exists. Probe with GET first — sites:read is in every
+	// permission set (including the OIDC trust used by sandbar-action).
+	// Only fall through to POST /sites if the site doesn't exist, which
+	// is the local-dev "first deploy" case where the user has a Clerk
+	// JWT with sites:write.
 	sp := output.NewSpinner("Connecting to site...")
-	_, createErr := c.CreateSite(client.CreateSiteRequest{
-		Name: slug,
-		Slug: slug,
-	})
-	if createErr != nil {
-		if apiErr, ok := createErr.(*client.APIError); !ok || apiErr.StatusCode != 409 {
-			sp.Fail("Failed to create site")
-			return createErr
+	if _, err := c.GetSite(slug); err != nil {
+		apiErr, ok := err.(*client.APIError)
+		if !ok || apiErr.StatusCode != 404 {
+			sp.Fail("Failed to look up site")
+			return err
+		}
+		// 404 — try to create.
+		if _, createErr := c.CreateSite(client.CreateSiteRequest{Name: slug, Slug: slug}); createErr != nil {
+			cErr, cOK := createErr.(*client.APIError)
+			if cOK && cErr.StatusCode == 403 {
+				sp.Fail("Site does not exist and CI lacks permission to create it")
+				return fmt.Errorf(
+					"site %q doesn't exist yet. Run `sandbar deploy` once locally to create it, "+
+						"then re-run this CI deploy.", slug)
+			}
+			if !cOK || cErr.StatusCode != 409 {
+				sp.Fail("Failed to create site")
+				return createErr
+			}
 		}
 	}
 	sp.Stop(fmt.Sprintf("Site: %s", slug))
