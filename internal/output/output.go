@@ -199,10 +199,16 @@ func Table(headers []string, rows [][]string) {
 	s.Header = s.Header.Bold(true).BorderBottom(true)
 	s.Selected = lipgloss.NewStyle()
 
+	// bubbles/table's WithHeight is overall viewport height, and it
+	// subtracts the rendered header height to size the row area. With
+	// a bottom-bordered bold header that's 2 lines, so passing just
+	// len(rows) leaves zero room for rows. Add header height back.
+	headerHeight := lipgloss.Height(s.Header.Render("X"))
+
 	t := table.New(
 		table.WithColumns(cols),
 		table.WithRows(tableRows),
-		table.WithHeight(len(rows)),
+		table.WithHeight(len(rows)+headerHeight),
 		table.WithStyles(s),
 	)
 

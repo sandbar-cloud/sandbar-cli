@@ -113,8 +113,17 @@ func (e *APIError) Error() string {
 }
 
 type SearchResponse[T any] struct {
-	Data       []T `json:"data"`
-	TotalCount int `json:"total_count"`
+	Data       []T    `json:"data"`
+	NextCursor string `json:"next_cursor,omitempty"`
+	HasMore    bool   `json:"has_more"`
+}
+
+// ListResponse is the unpaged-list envelope used by endpoints that
+// return every record in one shot (e.g. GET /sites/{slug}/domains).
+// Distinct from SearchResponse — the API serialises these as "items",
+// not "data".
+type ListResponse[T any] struct {
+	Items []T `json:"items"`
 }
 
 // --- Device auth types ---

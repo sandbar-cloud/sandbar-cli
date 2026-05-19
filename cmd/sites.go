@@ -71,13 +71,17 @@ func (cmd *SitesInfoCmd) Run(globals *Globals) error {
 			fmt.Printf("  Active Deploy:  %s\n", site.ActiveDeployID)
 		}
 	}
-	if domains != nil && len(domains.Data) > 0 {
-		for _, d := range domains.Data {
+	if domains != nil && len(domains.Items) > 0 {
+		for _, d := range domains.Items {
 			fmt.Printf("  Domain:         %s (%s, SSL %s)\n", d.Hostname, d.VerificationStatus, d.CertificateStatus)
 		}
 	}
-	if deploys != nil {
-		fmt.Printf("  Deploys:        %d total\n", deploys.TotalCount)
+	if deploys != nil && len(deploys.Data) > 0 {
+		count := fmt.Sprintf("%d", len(deploys.Data))
+		if deploys.HasMore {
+			count += "+"
+		}
+		fmt.Printf("  Deploys:        %s\n", count)
 	}
 	return nil
 }
