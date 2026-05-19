@@ -138,6 +138,8 @@ sandbar deploy [flags]
 |------|-------|---------|-------------|
 | `--dir` | `-d` | from config or `dist` | Build output directory |
 | `--no-activate` | | false | Upload without activating (staged deploy) |
+| `--skip-build` | | false | Skip the configured `[build]` command (also via `SANDBAR_SKIP_BUILD=1`) |
+| `--env` | `-e` | none | Named environment from `[env.<name>]`; merges over `[env]` defaults (also via `SANDBAR_ENV`) |
 | `--message` | `-m` | git HEAD message | Deploy message |
 | `--concurrency` | `-c` | `8` | Number of parallel upload workers |
 
@@ -155,6 +157,9 @@ sandbar deploy --message "Release v2.1" --concurrency 16
 
 # Deploy from a non-default build directory
 sandbar deploy --dir out
+
+# Deploy using the [env.staging] override set
+sandbar deploy --env staging
 ```
 
 ---
@@ -395,6 +400,16 @@ framework = "astro"         # Informational; set by auto-detection
 [build]
 command = "npm run build"   # Optional. Runs before deploy; skip with --skip-build
 
+# Optional: env vars exported to the build subprocess. [env] is the
+# default; [env.<name>] overrides it when invoked with `--env <name>`
+# (or SANDBAR_ENV=<name>). Override values win; un-overridden defaults
+# carry through.
+[env]
+PUBLIC_APP_URL = "https://app.sandbar.cloud"
+
+[env.staging]
+PUBLIC_APP_URL = "https://app.staging.sandbar.cloud"
+
 [deploy]
 auto_activate   = true   # Activate the deploy immediately after upload
 message_from_git = true  # Use the git HEAD commit message as the deploy message
@@ -435,6 +450,8 @@ Cache-Control = "public, max-age=31536000, immutable"
 | `site.build_dir` | string | Relative path to the build output directory |
 | `site.framework` | string | Framework name, set by auto-detection during `init` |
 | `build.command` | string | Shell command run before deploy (default: none). Bypass with `--skip-build` or `SANDBAR_SKIP_BUILD=1` |
+| `env` | table | Default env vars exported to the build subprocess. String values only |
+| `env.<name>` | table | Named override set. Selected via `--env <name>` or `SANDBAR_ENV`. Merges over defaults |
 | `deploy.auto_activate` | bool | Activate immediately after upload (default: `true`) |
 | `deploy.message_from_git` | bool | Use git HEAD message as deploy message (default: `true`) |
 | `preview.default_expiry` | string | Default expiry duration for preview URLs (default: `7d`) |

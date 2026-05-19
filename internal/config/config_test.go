@@ -115,6 +115,106 @@ func TestResolveToken_NoneFound(t *testing.T) {
 	}
 }
 
+func TestEnvFor_DefaultsOnly(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), `
+[site]
+name = "x"
+
+[env]
+PUBLIC_APP_URL = "https://app.sandbar.cloud"
+API_KEY = "default"
+`)
+	cfg, err := config.LoadProject(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	got := cfg.EnvFor("")
+	if got["PUBLIC_APP_URL"] != "https://app.sandbar.cloud" {
+		t.Errorf("PUBLIC_APP_URL = %q", got["PUBLIC_APP_URL"])
+	}
+	if got["API_KEY"] != "default" {
+		t.Errorf("API_KEY = %q", got["API_KEY"])
+	}
+}
+
+func TestEnvFor_NamedOverridesDefault(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), `
+[site]
+name = "x"
+
+[env]
+PUBLIC_APP_URL = "https://app.sandbar.cloud"
+API_KEY = "default"
+
+[env.staging]
+PUBLIC_APP_URL = "https://app.staging.sandbar.cloud"
+`)
+	cfg, err := config.LoadProject(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	got := cfg.EnvFor("staging")
+	if got["PUBLIC_APP_URL"] != "https://app.staging.sandbar.cloud" {
+		t.Errorf("PUBLIC_APP_URL (staging) = %q", got["PUBLIC_APP_URL"])
+	}
+	// Default key not overridden in [env.staging] is still present.
+	if got["API_KEY"] != "default" {
+		t.Errorf("API_KEY (staging) = %q, want carried over", got["API_KEY"])
+	}
+}
+
+func TestEnvFor_UnknownNameFallsBackToDefaults(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), `
+[site]
+name = "x"
+
+[env]
+PUBLIC_APP_URL = "default"
+`)
+	cfg, err := config.LoadProject(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	got := cfg.EnvFor("nonexistent")
+	if got["PUBLIC_APP_URL"] != "default" {
+		t.Errorf("PUBLIC_APP_URL = %q", got["PUBLIC_APP_URL"])
+	}
+}
+
+func TestHasEnv(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), `
+[site]
+name = "x"
+
+[env]
+A = "1"
+
+[env.staging]
+A = "2"
+`)
+	cfg, err := config.LoadProject(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if !cfg.HasEnv("") {
+		t.Error(`HasEnv("") = false, want true`)
+	}
+	if !cfg.HasEnv("staging") {
+		t.Error(`HasEnv("staging") = false, want true`)
+	}
+	if cfg.HasEnv("prod") {
+		t.Error(`HasEnv("prod") = true, want false`)
+	}
+}
+
 func TestLoadProjectConfig_WithRedirectsAndHeaders(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), `

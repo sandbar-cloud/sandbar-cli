@@ -14,6 +14,7 @@ type ProjectConfig struct {
 	Build     BuildConfig    `toml:"build"`
 	Deploy    DeployConfig   `toml:"deploy"`
 	Preview   PreviewConfig  `toml:"preview"`
+	Env       map[string]any `toml:"env"`
 	Redirects []RedirectRule `toml:"redirects"`
 	Headers   []HeaderRule   `toml:"headers"`
 }
@@ -21,6 +22,42 @@ type ProjectConfig struct {
 type BuildConfig struct {
 	// Command runs before deploy. Empty = skip the build step.
 	Command string `toml:"command"`
+}
+
+// EnvFor returns the merged env vars for the given environment name:
+// string-valued keys under [env] (defaults) plus string-valued keys
+// under [env.<name>] (overrides). Pass "" for defaults only. Unknown
+// names yield defaults — caller checks HasEnv before invoking if
+// "unknown env" should be an error.
+func (c *ProjectConfig) EnvFor(name string) map[string]string {
+	out := map[string]string{}
+	for k, v := range c.Env {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	if name == "" {
+		return out
+	}
+	sub, ok := c.Env[name].(map[string]any)
+	if !ok {
+		return out
+	}
+	for k, v := range sub {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	return out
+}
+
+// HasEnv reports whether a named [env.<name>] table exists.
+func (c *ProjectConfig) HasEnv(name string) bool {
+	if name == "" {
+		return true
+	}
+	_, ok := c.Env[name].(map[string]any)
+	return ok
 }
 
 type SiteConfig struct {
