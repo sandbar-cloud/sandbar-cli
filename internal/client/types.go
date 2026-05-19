@@ -113,8 +113,9 @@ func (e *APIError) Error() string {
 }
 
 type SearchResponse[T any] struct {
-	Data       []T `json:"data"`
-	TotalCount int `json:"total_count"`
+	Data       []T    `json:"data"`
+	NextCursor string `json:"next_cursor,omitempty"`
+	HasMore    bool   `json:"has_more"`
 }
 
 // --- Device auth types ---
