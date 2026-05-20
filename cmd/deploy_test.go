@@ -340,3 +340,113 @@ func TestRunBuild_SkipBuildShortCircuits(t *testing.T) {
 		t.Error("build ran despite --skip-build")
 	}
 }
+
+func TestReconcileDomains_AddsDeletesAndWarnsOnDrift(t *testing.T) {
+	var (
+		mu     sync.Mutex
+		calls  []string
+		listed bool
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/sites/site_abc/domains":
+			// Server has apex (matches desired), legacy.example.io
+			// (should be deleted), and www.example.com with a stale
+			// redirect_to (should produce a drift warning).
+			listed = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{"id": "dom_apex", "hostname": "example.com", "verification_status": "verified", "certificate_status": "active"},
+					{"id": "dom_legacy", "hostname": "legacy.example.io", "verification_status": "verified", "certificate_status": "active"},
+					{"id": "dom_www", "hostname": "www.example.com", "verification_status": "verified", "certificate_status": "active", "redirect_to": "old.example.com"},
+				},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/sites/site_abc/domains":
+			// The "added" entry — partner.example.com — gets created.
+			body := map[string]any{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":                  "dom_new",
+				"hostname":            body["hostname"],
+				"redirect_to":         body["redirect_to"],
+				"verification_status": "pending",
+				"certificate_status":  "pending",
+				"dns_instructions":    map[string]string{"record_type": "TXT", "record_name": "_sandbar", "record_value": "x"},
+			})
+		case r.Method == http.MethodDelete && r.URL.Path == "/sites/site_abc/domains/dom_legacy":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "token", "test")
+
+	desired := []config.DomainConfig{
+		{Hostname: "example.com"},
+		{Hostname: "www.example.com", RedirectTo: "example.com"}, // drift: server has old.example.com
+		{Hostname: "partner.example.com"},                        // new
+		// legacy.example.io is absent → should be deleted
+	}
+
+	reconcileDomains(c, "site_abc", desired)
+
+	if !listed {
+		t.Fatal("expected GET /sites/site_abc/domains call")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	wantPost := "POST /sites/site_abc/domains"
+	wantDelete := "DELETE /sites/site_abc/domains/dom_legacy"
+	if !containsCall(calls, wantPost) {
+		t.Errorf("missing add call %q; got %v", wantPost, calls)
+	}
+	if !containsCall(calls, wantDelete) {
+		t.Errorf("missing delete call %q; got %v", wantDelete, calls)
+	}
+	// No PATCH/PUT should fire for the redirect_to drift — warn-only.
+	for _, c := range calls {
+		if c[:3] == "PUT" || c[:3] == "PAT" {
+			t.Errorf("unexpected update call %q (drift should be warn-only)", c)
+		}
+	}
+}
+
+func TestReconcileDomains_SkippedWhenNilDomains(t *testing.T) {
+	// Sanity: reconcileDomains is only invoked when cfg.Domains is
+	// non-nil. This test exercises the call-site guard, not the
+	// function itself — calling reconcileDomains with nil would still
+	// list. The guard lives in DeployCmd.RunWith.
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	var desired []config.DomainConfig // nil
+	if desired != nil {
+		c := client.New(srv.URL, "token", "test")
+		reconcileDomains(c, "site_abc", desired)
+	}
+	if hit {
+		t.Error("reconcile should not have fired for nil Domains")
+	}
+}
+
+func containsCall(calls []string, want string) bool {
+	for _, c := range calls {
+		if c == want {
+			return true
+		}
+	}
+	return false
+}

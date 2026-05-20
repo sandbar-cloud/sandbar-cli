@@ -248,6 +248,14 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 	}
 	sp.Stop(fmt.Sprintf("Deployed in %s", time.Since(start).Round(100*time.Millisecond)))
 
+	// Reconcile custom domains against [[domains]] in .sandbar/config.toml.
+	// Authoritative: server is brought into sync with config. Skipped when
+	// the block is absent (nil) so projects that haven't adopted the
+	// declarative shape aren't surprised by deletes.
+	if cfg.Domains != nil {
+		reconcileDomains(c, slug, cfg.Domains)
+	}
+
 	site, err := c.GetSite(slug)
 	if err != nil {
 		// Non-fatal: still print deploy ID even if site fetch fails
@@ -260,6 +268,62 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 		fmt.Printf("  Preview: %s\n", output.Bold.Render(client.PreviewURL(site.Slug, branch)))
 	}
 	return nil
+}
+
+// reconcileDomains brings the server's custom_domains for a site into
+// sync with the desired list from .sandbar/config.toml. Adds missing
+// entries (kicks off the normal verification flow) and deletes
+// orphans. Drift in `redirect_to` on an existing domain is warned
+// about but not corrected — the server has no update-redirect-to
+// endpoint yet, so the workaround is delete + re-add.
+func reconcileDomains(c *client.Client, slug string, desired []config.DomainConfig) {
+	resp, err := c.ListDomains(slug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ! domain reconcile: list failed: %v\n", err)
+		return
+	}
+
+	want := map[string]config.DomainConfig{}
+	for _, d := range desired {
+		want[d.Hostname] = d
+	}
+	have := map[string]client.Domain{}
+	for _, d := range resp.Items {
+		have[d.Hostname] = d
+	}
+
+	for host, d := range want {
+		if _, ok := have[host]; ok {
+			continue
+		}
+		if _, err := c.AddDomain(slug, client.AddDomainRequest{Hostname: host, RedirectTo: d.RedirectTo}); err != nil {
+			fmt.Fprintf(os.Stderr, "  ! domain reconcile: add %s failed: %v\n", host, err)
+			continue
+		}
+		fmt.Printf("  + domain added: %s (run `sandbar domains verify %s` after DNS is set)\n", host, host)
+	}
+
+	for host, d := range have {
+		if _, ok := want[host]; ok {
+			continue
+		}
+		if err := c.DeleteDomain(slug, d.ID); err != nil {
+			fmt.Fprintf(os.Stderr, "  ! domain reconcile: delete %s failed: %v\n", host, err)
+			continue
+		}
+		fmt.Printf("  - domain removed: %s\n", host)
+	}
+
+	for host, d := range want {
+		a, ok := have[host]
+		if !ok || d.RedirectTo == a.RedirectTo {
+			continue
+		}
+		fmt.Fprintf(os.Stderr,
+			"  ! domain %s redirect_to drift: config=%q server=%q (update unsupported; delete + re-add to change)\n",
+			host, d.RedirectTo, a.RedirectTo,
+		)
+	}
 }
 
 // runBuild executes cfg.Build.Command in workDir, streaming output to

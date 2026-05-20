@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sandbar-cloud/sandbar-cli/internal/client"
+	"github.com/sandbar-cloud/sandbar-cli/internal/config"
 	"github.com/sandbar-cloud/sandbar-cli/internal/output"
 )
 
@@ -24,9 +25,13 @@ type DomainsAddCmd struct {
 }
 
 func (cmd *DomainsAddCmd) Run(globals *Globals) error {
-	slug, err := globals.SiteSlug()
+	cfg, err := globals.ProjectConfig()
 	if err != nil {
 		return err
+	}
+	slug := cfg.Site.Name
+	if slug == "" {
+		return fmt.Errorf("no site name in .sandbar/config.toml. Run `sandbar init`")
 	}
 	c := globals.Client()
 
@@ -36,6 +41,30 @@ func (cmd *DomainsAddCmd) Run(globals *Globals) error {
 	})
 	if err != nil {
 		return err
+	}
+
+	// Mirror the new domain into .sandbar/config.toml so subsequent
+	// `sandbar deploy` reconcile passes see it as desired state.
+	// Upsert by hostname — re-running `domains add` with a new
+	// --redirect-to updates the entry in place.
+	upserted := false
+	for i, d := range cfg.Domains {
+		if d.Hostname == cmd.Hostname {
+			cfg.Domains[i].RedirectTo = cmd.RedirectTo
+			upserted = true
+			break
+		}
+	}
+	if !upserted {
+		cfg.Domains = append(cfg.Domains, config.DomainConfig{
+			Hostname:   cmd.Hostname,
+			RedirectTo: cmd.RedirectTo,
+		})
+	}
+	if err := config.WriteProject(globals.WorkDir(), cfg); err != nil {
+		// Don't fail the command — the API already accepted the
+		// domain. Surface the warning so the user can hand-edit.
+		fmt.Fprintf(os.Stderr, "warning: domain added on server but failed to update .sandbar/config.toml: %v\n", err)
 	}
 
 	fmt.Printf("\nAdd this DNS record to verify ownership of %s:\n\n", output.Bold.Render(cmd.Hostname))
@@ -129,9 +158,13 @@ type DomainsDeleteCmd struct {
 }
 
 func (cmd *DomainsDeleteCmd) Run(globals *Globals) error {
-	slug, err := globals.SiteSlug()
+	cfg, err := globals.ProjectConfig()
 	if err != nil {
 		return err
+	}
+	slug := cfg.Site.Name
+	if slug == "" {
+		return fmt.Errorf("no site name in .sandbar/config.toml. Run `sandbar init`")
 	}
 	c := globals.Client()
 
@@ -167,6 +200,21 @@ func (cmd *DomainsDeleteCmd) Run(globals *Globals) error {
 		return err
 	}
 	sp.Stop(fmt.Sprintf("Deleted %s", cmd.Hostname))
+
+	// Remove from .sandbar/config.toml so the next reconcile doesn't
+	// recreate it. Same warn-don't-fail pattern as `domains add`.
+	kept := cfg.Domains[:0]
+	for _, d := range cfg.Domains {
+		if d.Hostname != cmd.Hostname {
+			kept = append(kept, d)
+		}
+	}
+	if len(kept) != len(cfg.Domains) {
+		cfg.Domains = kept
+		if err := config.WriteProject(globals.WorkDir(), cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: domain deleted on server but failed to update .sandbar/config.toml: %v\n", err)
+		}
+	}
 	return nil
 }
 
