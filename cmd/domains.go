@@ -19,7 +19,8 @@ type DomainsCmd struct {
 }
 
 type DomainsAddCmd struct {
-	Hostname string `arg:"" help:"Domain hostname to add."`
+	Hostname   string `arg:"" help:"Domain hostname to add."`
+	RedirectTo string `help:"Canonical hostname to 301 to. When set, this domain serves a redirect instead of content (e.g. www.example.com --redirect-to example.com)."`
 }
 
 func (cmd *DomainsAddCmd) Run(globals *Globals) error {
@@ -29,7 +30,10 @@ func (cmd *DomainsAddCmd) Run(globals *Globals) error {
 	}
 	c := globals.Client()
 
-	resp, err := c.AddDomain(slug, client.AddDomainRequest{Hostname: cmd.Hostname})
+	resp, err := c.AddDomain(slug, client.AddDomainRequest{
+		Hostname:   cmd.Hostname,
+		RedirectTo: cmd.RedirectTo,
+	})
 	if err != nil {
 		return err
 	}
@@ -38,6 +42,12 @@ func (cmd *DomainsAddCmd) Run(globals *Globals) error {
 	fmt.Printf("  Type:  %s\n", resp.DNSInstructions.RecordType)
 	fmt.Printf("  Name:  %s\n", resp.DNSInstructions.RecordName)
 	fmt.Printf("  Value: %s\n", resp.DNSInstructions.RecordValue)
+	if cmd.RedirectTo != "" {
+		fmt.Printf("\nOnce verified, %s will 301 to %s.\n",
+			output.Bold.Render(cmd.Hostname),
+			output.Bold.Render(cmd.RedirectTo),
+		)
+	}
 	fmt.Printf("\nThen run: %s\n\n", output.Dim.Render("sandbar domains verify "+cmd.Hostname))
 	return nil
 }
@@ -62,13 +72,18 @@ func (cmd *DomainsListCmd) Run(globals *Globals) error {
 		return nil
 	}
 
-	headers := []string{"HOSTNAME", "VERIFICATION", "SSL", "ADDED"}
+	headers := []string{"HOSTNAME", "VERIFICATION", "SSL", "REDIRECTS TO", "ADDED"}
 	rows := make([][]string, len(domains))
 	for i, d := range domains {
+		redirectCell := "—"
+		if d.RedirectTo != "" {
+			redirectCell = d.RedirectTo
+		}
 		rows[i] = []string{
 			d.Hostname,
 			formatVerification(d.VerificationStatus),
 			formatSSL(d.CertificateStatus),
+			redirectCell,
 			d.CreatedAt.Format(time.DateOnly),
 		}
 	}

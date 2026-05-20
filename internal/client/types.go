@@ -25,7 +25,8 @@ type FileEntry struct {
 }
 
 type AddDomainRequest struct {
-	Hostname string `json:"hostname"`
+	Hostname   string `json:"hostname"`
+	RedirectTo string `json:"redirect_to,omitempty"`
 }
 
 type UpdateSiteRequest struct {
@@ -83,6 +84,7 @@ type Domain struct {
 	Hostname           string     `json:"hostname"`
 	VerificationStatus string     `json:"verification_status"`
 	CertificateStatus  string     `json:"certificate_status"`
+	RedirectTo         string     `json:"redirect_to,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
 	VerifiedAt         *time.Time `json:"verified_at,omitempty"`
 }
