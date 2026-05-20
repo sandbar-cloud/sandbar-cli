@@ -82,6 +82,8 @@ type Deploy struct {
 	Status      string     `json:"status"`
 	FileCount   int        `json:"file_count"`
 	TotalBytes  int64      `json:"total_bytes"`
+	Branch      string     `json:"branch,omitempty"`
+	CommitSHA   string     `json:"commit_sha,omitempty"`
 	Message     string     `json:"message"`
 	CreatedAt   time.Time  `json:"created_at"`
 	ActivatedAt *time.Time `json:"activated_at,omitempty"`
