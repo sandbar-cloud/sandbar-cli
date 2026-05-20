@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sandbar-cloud/sandbar-cli/internal/config"
@@ -389,5 +390,155 @@ name = "mataki-web"
 	// In legacy mode, Name holds the slug — not a display name to sync.
 	if got := cfg.Site.DisplayName(); got != "" {
 		t.Errorf("legacy fallback: DisplayName = %q, want empty (would clobber server name)", got)
+	}
+}
+
+func TestLoadProject_RejectsUnknownKeys(t *testing.T) {
+	cases := []struct {
+		name string
+		toml string
+		want []string // substrings that must all appear in the error
+	}{
+		{
+			name: "domains.name suggests hostname",
+			toml: `
+[site]
+slug = "s"
+
+[[domains]]
+name = "example.com"
+`,
+			want: []string{"domains.name", "did you mean `hostname`?"},
+		},
+		{
+			name: "[[sites]] suggests site",
+			toml: `
+[site]
+slug = "s"
+
+[[sites]]
+hostname = "example.com"
+`,
+			// site/sites differ by one character → top suggestion is `site`.
+			want: []string{"sites", "did you mean `site`?"},
+		},
+		{
+			name: "unrecognised [site] field lists the valid set",
+			toml: `
+[site]
+slug = "s"
+
+[site.zzzz_no_close_match]
+`,
+			want: []string{"valid fields:", "slug", "name", "production_branch"},
+		},
+		{
+			name: "trusts.repo suggests repository",
+			toml: `
+[site]
+slug = "s"
+
+[[trusts]]
+repo = "owner/repo"
+`,
+			want: []string{"trusts.repo", "did you mean `repository`?"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), c.toml)
+			_, err := config.LoadProject(dir)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			for _, want := range c.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q should mention %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadProject_AllowsEnvFreeForm(t *testing.T) {
+	// The [env] table is free-form (map[string]any) so any key inside
+	// it should NOT trigger the unknown-key error.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), `
+[site]
+slug = "s"
+
+[env]
+PUBLIC_API_URL = "https://example.com"
+
+[env.production]
+NODE_ENV = "production"
+`)
+	if _, err := config.LoadProject(dir); err != nil {
+		t.Errorf("env keys should be allowed: %v", err)
+	}
+}
+
+func TestLoadProject_RequiredFields(t *testing.T) {
+	cases := []struct {
+		name string
+		toml string
+		want string
+	}{
+		{
+			name: "no slug or name",
+			toml: `
+[deploy]
+auto_activate = true
+`,
+			want: "[site] must set",
+		},
+		{
+			name: "domain missing hostname",
+			toml: `
+[site]
+slug = "s"
+
+[[domains]]
+redirect_to = "example.com"
+`,
+			want: "[[domains]] entry #1 is missing `hostname`",
+		},
+		{
+			name: "trust missing repository",
+			toml: `
+[site]
+slug = "s"
+
+[[trusts]]
+ref_filter = "*"
+`,
+			want: "[[trusts]] entry #1 is missing `repository`",
+		},
+		{
+			name: "trust repository without owner",
+			toml: `
+[site]
+slug = "s"
+
+[[trusts]]
+repository = "just-a-repo"
+`,
+			want: "must be in `<owner>/<repo>` form",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), c.toml)
+			_, err := config.LoadProject(dir)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error %q should mention %q", err, c.want)
+			}
+		})
 	}
 }
