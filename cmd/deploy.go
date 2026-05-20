@@ -248,19 +248,25 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 	}
 	sp.Stop(fmt.Sprintf("Deployed in %s", time.Since(start).Round(100*time.Millisecond)))
 
-	// Reconcile custom domains against [[domains]] in .sandbar/config.toml.
-	// Authoritative: server is brought into sync with config. Skipped when
-	// the block is absent (nil) so projects that haven't adopted the
-	// declarative shape aren't surprised by deletes.
-	reconcileSite(c, slug, cfg.Site)
-	if cfg.Domains != nil {
-		reconcileDomains(c, slug, cfg.Domains)
-	}
-	if cfg.Trusts != nil {
-		reconcileTrusts(c, slug, cfg.Trusts)
-	}
-	if cfg.Preview.DefaultExpiry != "" {
-		reconcilePreviewExpiry(c, slug, cfg.Preview.DefaultExpiry)
+	// Reconcile site-level state — domains, trusts, name, production
+	// branch, preview expiry — against the config. Only on production
+	// deploys, never on previews: a PR-branch deploy could otherwise
+	// push unmerged config to the server, or delete domains/trusts
+	// that the PR branch hasn't picked up yet.
+	if isProductionDeploy(branch, cfg.Site.ProductionBranch) {
+		reconcileSite(c, slug, cfg.Site)
+		if cfg.Domains != nil {
+			reconcileDomains(c, slug, cfg.Domains)
+		}
+		if cfg.Trusts != nil {
+			reconcileTrusts(c, slug, cfg.Trusts)
+		}
+		if cfg.Preview.DefaultExpiry != "" {
+			reconcilePreviewExpiry(c, slug, cfg.Preview.DefaultExpiry)
+		}
+	} else if hasReconcilableConfig(cfg) {
+		fmt.Printf("  (preview deploy on %s — skipping reconcile of [site]/[[domains]]/[[trusts]]/[preview])\n",
+			output.Bold.Render(branch))
 	}
 
 	site, err := c.GetSite(slug)
@@ -340,6 +346,39 @@ func reconcileDomains(c *client.Client, slug string, desired []config.DomainConf
 			fmt.Printf("  ~ domain %s: redirect changed %s → %s\n", host, a.RedirectTo, newRedirect)
 		}
 	}
+}
+
+// isProductionDeploy decides whether site-level reconcile should run.
+// True when:
+//   - The deploy has no branch set (un-branched default), or
+//   - The branch matches the configured production branch (or "main"
+//     as the server-side default when config doesn't override it).
+// Everything else is a preview and must not push config-driven state
+// to the server.
+func isProductionDeploy(branch, configuredProduction string) bool {
+	if branch == "" {
+		return true
+	}
+	prod := configuredProduction
+	if prod == "" {
+		prod = "main"
+	}
+	return branch == prod
+}
+
+// hasReconcilableConfig reports whether the project has opted into
+// any of the declarative blocks the reconcile would touch. Used to
+// decide whether to print the "preview deploy — skipping reconcile"
+// notice; projects that haven't adopted any of these shouldn't see
+// the message at all.
+func hasReconcilableConfig(cfg *config.ProjectConfig) bool {
+	if cfg.Domains != nil || cfg.Trusts != nil {
+		return true
+	}
+	if cfg.Preview.DefaultExpiry != "" {
+		return true
+	}
+	return cfg.Site.DisplayName() != "" || cfg.Site.ProductionBranch != ""
 }
 
 // reconcileTrusts brings the server's OIDC trust list into sync with
