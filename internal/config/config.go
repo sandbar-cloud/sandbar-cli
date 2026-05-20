@@ -16,8 +16,70 @@ type ProjectConfig struct {
 	Preview   PreviewConfig  `toml:"preview"`
 	Env       map[string]any `toml:"env"`
 	Domains   []DomainConfig `toml:"domains,omitempty"`
+	Trusts    []TrustConfig  `toml:"trusts,omitempty"`
 	Redirects []RedirectRule `toml:"redirects"`
 	Headers   []HeaderRule   `toml:"headers"`
+}
+
+// TrustConfig declares an OIDC deploy trust in .sandbar/config.toml.
+// Authoritative: `sandbar deploy` reconciles the server's trust list
+// to match this block. Trusts present on the server but absent here
+// are deleted — including the trust the current deploy used to
+// authenticate, so don't remove a trust from config until the
+// workflow using it stops running.
+//
+// Identity is the (Provider, Repository, RefFilter, Environment)
+// tuple; matching is exact.
+type TrustConfig struct {
+	Provider    string `toml:"provider,omitempty"`    // default "github"
+	Repository  string `toml:"repository"`            // e.g. "mataki-dev/mataki-web"
+	RefFilter   string `toml:"ref_filter,omitempty"`  // default "*"
+	Environment string `toml:"environment,omitempty"` // default "*"
+}
+
+// EffectiveProvider returns the trust's provider with the "github"
+// default applied — matches how the server normalises empty values.
+func (t *TrustConfig) EffectiveProvider() string {
+	if t.Provider == "" {
+		return "github"
+	}
+	return t.Provider
+}
+
+// EffectiveRefFilter returns the ref filter with the "*" default.
+func (t *TrustConfig) EffectiveRefFilter() string {
+	if t.RefFilter == "" {
+		return "*"
+	}
+	return t.RefFilter
+}
+
+// EffectiveEnvironment returns the environment with the "*" default.
+func (t *TrustConfig) EffectiveEnvironment() string {
+	if t.Environment == "" {
+		return "*"
+	}
+	return t.Environment
+}
+
+// Key returns the tuple identity for matching against the server's
+// trust list.
+func (t *TrustConfig) Key() TrustKey {
+	return TrustKey{
+		Provider:    t.EffectiveProvider(),
+		Repository:  t.Repository,
+		RefFilter:   t.EffectiveRefFilter(),
+		Environment: t.EffectiveEnvironment(),
+	}
+}
+
+// TrustKey is the (provider, repo, ref, env) tuple used to match
+// config trust entries against server-side rows.
+type TrustKey struct {
+	Provider    string
+	Repository  string
+	RefFilter   string
+	Environment string
 }
 
 // DomainConfig declares a custom domain in .sandbar/config.toml.

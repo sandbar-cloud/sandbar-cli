@@ -248,16 +248,25 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 	}
 	sp.Stop(fmt.Sprintf("Deployed in %s", time.Since(start).Round(100*time.Millisecond)))
 
-	// Reconcile custom domains against [[domains]] in .sandbar/config.toml.
-	// Authoritative: server is brought into sync with config. Skipped when
-	// the block is absent (nil) so projects that haven't adopted the
-	// declarative shape aren't surprised by deletes.
-	reconcileSite(c, slug, cfg.Site)
-	if cfg.Domains != nil {
-		reconcileDomains(c, slug, cfg.Domains)
-	}
-	if cfg.Preview.DefaultExpiry != "" {
-		reconcilePreviewExpiry(c, slug, cfg.Preview.DefaultExpiry)
+	// Reconcile site-level state — domains, trusts, name, production
+	// branch, preview expiry — against the config. Only on production
+	// deploys, never on previews: a PR-branch deploy could otherwise
+	// push unmerged config to the server, or delete domains/trusts
+	// that the PR branch hasn't picked up yet.
+	if isProductionDeploy(branch, cfg.Site.ProductionBranch) {
+		reconcileSite(c, slug, cfg.Site)
+		if cfg.Domains != nil {
+			reconcileDomains(c, slug, cfg.Domains)
+		}
+		if cfg.Trusts != nil {
+			reconcileTrusts(c, slug, cfg.Trusts)
+		}
+		if cfg.Preview.DefaultExpiry != "" {
+			reconcilePreviewExpiry(c, slug, cfg.Preview.DefaultExpiry)
+		}
+	} else if hasReconcilableConfig(cfg) {
+		fmt.Printf("  (preview deploy on %s — skipping reconcile of [site]/[[domains]]/[[trusts]]/[preview])\n",
+			output.Bold.Render(branch))
 	}
 
 	site, err := c.GetSite(slug)
@@ -336,6 +345,100 @@ func reconcileDomains(c *client.Client, slug string, desired []config.DomainConf
 		default:
 			fmt.Printf("  ~ domain %s: redirect changed %s → %s\n", host, a.RedirectTo, newRedirect)
 		}
+	}
+}
+
+// isProductionDeploy decides whether site-level reconcile should run.
+// True when:
+//   - The deploy has no branch set (un-branched default), or
+//   - The branch matches the configured production branch (or "main"
+//     as the server-side default when config doesn't override it).
+// Everything else is a preview and must not push config-driven state
+// to the server.
+func isProductionDeploy(branch, configuredProduction string) bool {
+	if branch == "" {
+		return true
+	}
+	prod := configuredProduction
+	if prod == "" {
+		prod = "main"
+	}
+	return branch == prod
+}
+
+// hasReconcilableConfig reports whether the project has opted into
+// any of the declarative blocks the reconcile would touch. Used to
+// decide whether to print the "preview deploy — skipping reconcile"
+// notice; projects that haven't adopted any of these shouldn't see
+// the message at all.
+func hasReconcilableConfig(cfg *config.ProjectConfig) bool {
+	if cfg.Domains != nil || cfg.Trusts != nil {
+		return true
+	}
+	if cfg.Preview.DefaultExpiry != "" {
+		return true
+	}
+	return cfg.Site.DisplayName() != "" || cfg.Site.ProductionBranch != ""
+}
+
+// reconcileTrusts brings the server's OIDC trust list into sync with
+// [[trusts]] in .sandbar/config.toml. Authoritative: trusts present
+// on the server but absent from config are deleted. Skipped at the
+// call site when the block is nil (project hasn't adopted the
+// declarative shape).
+//
+// Footgun: the trust authenticating this very deploy can be the one
+// deleted. The reconcile already succeeded auth-wise, so the current
+// request finishes — but the next workflow run breaks. The CLI
+// surfaces the delete in its output so users see what changed.
+func reconcileTrusts(c *client.Client, slug string, desired []config.TrustConfig) {
+	remote, err := c.ListTrusts(slug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ! trust reconcile: list failed: %v\n", err)
+		return
+	}
+
+	want := map[config.TrustKey]config.TrustConfig{}
+	for _, t := range desired {
+		want[t.Key()] = t
+	}
+	have := map[config.TrustKey]client.Trust{}
+	for _, t := range remote {
+		have[config.TrustKey{
+			Provider:    t.Provider,
+			Repository:  t.Repository,
+			RefFilter:   t.RefFilter,
+			Environment: t.Environment,
+		}] = t
+	}
+
+	for key, t := range want {
+		if _, ok := have[key]; ok {
+			continue
+		}
+		if _, err := c.AddTrust(slug, client.AddTrustRequest{
+			Provider:    t.EffectiveProvider(),
+			Repository:  t.Repository,
+			RefFilter:   t.EffectiveRefFilter(),
+			Environment: t.EffectiveEnvironment(),
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "  ! trust reconcile: add %s (%s/%s) failed: %v\n",
+				t.Repository, t.EffectiveRefFilter(), t.EffectiveEnvironment(), err)
+			continue
+		}
+		fmt.Printf("  + trust added: %s (ref=%s env=%s)\n",
+			t.Repository, t.EffectiveRefFilter(), t.EffectiveEnvironment())
+	}
+
+	for key, t := range have {
+		if _, ok := want[key]; ok {
+			continue
+		}
+		if err := c.DeleteTrust(slug, t.ID); err != nil {
+			fmt.Fprintf(os.Stderr, "  ! trust reconcile: delete %s failed: %v\n", t.ID, err)
+			continue
+		}
+		fmt.Printf("  - trust removed: %s (ref=%s env=%s)\n", t.Repository, t.RefFilter, t.Environment)
 	}
 }
 

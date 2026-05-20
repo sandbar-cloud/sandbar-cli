@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -557,6 +558,156 @@ func TestReconcileSite_SkipsLegacyShape(t *testing.T) {
 
 	c := client.New(srv.URL, "tok", "test")
 	reconcileSite(c, "site_abc", config.SiteConfig{Name: "site_abc"})
+}
+
+func TestIsProductionDeploy(t *testing.T) {
+	cases := []struct {
+		branch, configured string
+		want               bool
+	}{
+		{"", "", true},                // un-branched default deploy
+		{"", "main", true},            // configured production, no branch arg
+		{"main", "", true},            // server default is main
+		{"main", "main", true},        // explicit match
+		{"trunk", "trunk", true},      // non-default production branch
+		{"pr-1", "main", false},       // PR preview
+		{"feature/x", "main", false},  // feature branch
+		{"main", "trunk", false},      // pushed main to a trunk-production site
+	}
+	for _, c := range cases {
+		got := isProductionDeploy(c.branch, c.configured)
+		if got != c.want {
+			t.Errorf("isProductionDeploy(branch=%q, configured=%q) = %v, want %v",
+				c.branch, c.configured, got, c.want)
+		}
+	}
+}
+
+func TestHasReconcilableConfig(t *testing.T) {
+	empty := &config.ProjectConfig{}
+	if hasReconcilableConfig(empty) {
+		t.Error("empty config should not be reconcilable")
+	}
+	withDomain := &config.ProjectConfig{
+		Domains: []config.DomainConfig{{Hostname: "example.com"}},
+	}
+	if !hasReconcilableConfig(withDomain) {
+		t.Error("config with [[domains]] should be reconcilable")
+	}
+	withSite := &config.ProjectConfig{
+		Site: config.SiteConfig{Slug: "x", Name: "Display"},
+	}
+	if !hasReconcilableConfig(withSite) {
+		t.Error("config with [site] display name should be reconcilable")
+	}
+}
+
+func TestReconcileTrusts_AddsDeletes(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		calls   []string
+		posted  map[string]any
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/sites/site_abc/trusts":
+			// Server has the auth trust (matches desired) plus a
+			// legacy entry that's been dropped from config.
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"id":          "trust_keep",
+					"provider":    "github",
+					"repository":  "mataki-dev/mataki-web",
+					"ref_filter":  "refs/heads/main",
+					"environment": "*",
+				},
+				{
+					"id":          "trust_orphan",
+					"provider":    "github",
+					"repository":  "mataki-dev/legacy",
+					"ref_filter":  "*",
+					"environment": "*",
+				},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/sites/site_abc/trusts":
+			body := map[string]any{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			posted = body
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":          "trust_new",
+				"provider":    body["provider"],
+				"repository":  body["repository"],
+				"ref_filter":  body["ref_filter"],
+				"environment": body["environment"],
+			})
+		case r.Method == http.MethodDelete && r.URL.Path == "/sites/site_abc/trusts/trust_orphan":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "tok", "test")
+	reconcileTrusts(c, "site_abc", []config.TrustConfig{
+		{Repository: "mataki-dev/mataki-web", RefFilter: "refs/heads/main"}, // already on server
+		{Repository: "mataki-dev/preview", RefFilter: "refs/pull/*/merge"},   // new
+		// mataki-dev/legacy is absent → should be deleted
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !containsCall(calls, "POST /sites/site_abc/trusts") {
+		t.Errorf("expected POST for new trust; got %v", calls)
+	}
+	if !containsCall(calls, "DELETE /sites/site_abc/trusts/trust_orphan") {
+		t.Errorf("expected DELETE for orphan; got %v", calls)
+	}
+	if posted["repository"] != "mataki-dev/preview" {
+		t.Errorf("posted repository = %v, want mataki-dev/preview", posted["repository"])
+	}
+	// PATCH must not fire — reconcile is create + delete only.
+	for _, call := range calls {
+		if strings.HasPrefix(call, "PATCH /sites/site_abc/trusts") {
+			t.Errorf("unexpected PATCH on trusts: %q", call)
+		}
+	}
+}
+
+func TestReconcileTrusts_DefaultsApplied(t *testing.T) {
+	// A config entry that only sets Repository should resolve to
+	// (provider=github, ref_filter=*, environment=*) — matching the
+	// server's defaults — so a server row carrying those defaults is
+	// a no-op (no POST / DELETE).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"id":          "trust_default",
+					"provider":    "github",
+					"repository":  "mataki-dev/mataki-web",
+					"ref_filter":  "*",
+					"environment": "*",
+				},
+			})
+		default:
+			t.Errorf("expected no mutation; got %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "tok", "test")
+	reconcileTrusts(c, "site_abc", []config.TrustConfig{
+		{Repository: "mataki-dev/mataki-web"}, // bare entry, defaults match
+	})
 }
 
 func TestReconcilePreviewExpiry_NoopWhenMatching(t *testing.T) {
