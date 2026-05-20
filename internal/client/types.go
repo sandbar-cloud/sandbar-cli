@@ -97,15 +97,13 @@ type Domain struct {
 	VerifiedAt         *time.Time `json:"verified_at,omitempty"`
 }
 
+// AddDomainResponse matches the flat DomainResponse the API returns
+// from POST /sites/{slug}/domains. The server embeds the rendered DNS
+// instructions as a single string (TrustClaim formats them) rather
+// than a structured record-type/name/value triple.
 type AddDomainResponse struct {
-	Domain          Domain  `json:"domain"`
-	DNSInstructions DNSInfo `json:"dns_instructions"`
-}
-
-type DNSInfo struct {
-	RecordType  string `json:"record_type"`
-	RecordName  string `json:"record_name"`
-	RecordValue string `json:"record_value"`
+	Domain
+	DNSInstructions string `json:"dns_instructions,omitempty"`
 }
 
 type APIError struct {
