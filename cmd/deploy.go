@@ -255,6 +255,9 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 	if cfg.Domains != nil {
 		reconcileDomains(c, slug, cfg.Domains)
 	}
+	if cfg.Preview.DefaultExpiry != "" {
+		reconcilePreviewExpiry(c, slug, cfg.Preview.DefaultExpiry)
+	}
 
 	site, err := c.GetSite(slug)
 	if err != nil {
@@ -332,6 +335,32 @@ func reconcileDomains(c *client.Client, slug string, desired []config.DomainConf
 		default:
 			fmt.Printf("  ~ domain %s: redirect changed %s → %s\n", host, a.RedirectTo, newRedirect)
 		}
+	}
+}
+
+// reconcilePreviewExpiry syncs the site's preview_expiry override
+// against [preview] default_expiry from .sandbar/config.toml. A no-op
+// when the server already matches; otherwise PATCHes the site. The
+// server is authoritative on parse/validation — we just send the
+// raw config string.
+func reconcilePreviewExpiry(c *client.Client, slug, desired string) {
+	site, err := c.GetSite(slug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ! preview_expiry reconcile: get site failed: %v\n", err)
+		return
+	}
+	if site.PreviewExpiry == desired {
+		return
+	}
+	if _, err := c.UpdateSite(slug, client.UpdateSiteRequest{PreviewExpiry: &desired}); err != nil {
+		fmt.Fprintf(os.Stderr, "  ! preview_expiry reconcile: update failed: %v\n", err)
+		return
+	}
+	switch {
+	case site.PreviewExpiry == "":
+		fmt.Printf("  ~ preview expiry: %s (was platform default)\n", desired)
+	default:
+		fmt.Printf("  ~ preview expiry: %s → %s\n", site.PreviewExpiry, desired)
 	}
 }
 

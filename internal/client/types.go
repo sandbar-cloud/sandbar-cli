@@ -40,6 +40,10 @@ type UpdateDomainRequest struct {
 type UpdateSiteRequest struct {
 	Name             *string `json:"name,omitempty"`
 	ProductionBranch *string `json:"production_branch,omitempty"`
+	// PreviewExpiry: nil leaves the column alone, empty string
+	// clears the override (use platform default), any other value
+	// sets it (server parses "7d" / "24h" / etc.).
+	PreviewExpiry *string `json:"preview_expiry,omitempty"`
 }
 
 type RedirectRule struct {
@@ -56,11 +60,13 @@ type HeaderRule struct {
 // --- Response types ---
 
 type Site struct {
-	Slug           string    `json:"slug"`
-	Name           string    `json:"name"`
-	ActiveDeployID string    `json:"active_deploy_id"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	Slug             string    `json:"slug"`
+	Name             string    `json:"name"`
+	ActiveDeployID   string    `json:"active_deploy_id"`
+	ProductionBranch string    `json:"production_branch"`
+	PreviewExpiry    string    `json:"preview_expiry,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type CreateDeployResponse struct {
