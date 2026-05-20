@@ -29,6 +29,14 @@ type AddDomainRequest struct {
 	RedirectTo string `json:"redirect_to,omitempty"`
 }
 
+// UpdateDomainRequest is the body for PATCH /sites/{slug}/domains/{id}.
+// Pointer fields distinguish "leave alone" (nil) from "set to empty
+// string" (pointer to ""). Today that only matters for RedirectTo —
+// clearing a redirect needs to send "".
+type UpdateDomainRequest struct {
+	RedirectTo *string `json:"redirect_to,omitempty"`
+}
+
 type UpdateSiteRequest struct {
 	Name             *string `json:"name,omitempty"`
 	ProductionBranch *string `json:"production_branch,omitempty"`

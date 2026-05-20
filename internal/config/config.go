@@ -15,8 +15,19 @@ type ProjectConfig struct {
 	Deploy    DeployConfig   `toml:"deploy"`
 	Preview   PreviewConfig  `toml:"preview"`
 	Env       map[string]any `toml:"env"`
+	Domains   []DomainConfig `toml:"domains,omitempty"`
 	Redirects []RedirectRule `toml:"redirects"`
 	Headers   []HeaderRule   `toml:"headers"`
+}
+
+// DomainConfig declares a custom domain in .sandbar/config.toml.
+// Authoritative: `sandbar deploy` reconciles the server state to match
+// this list — domains present on the server but absent here are
+// deleted. RedirectTo (optional) is the canonical hostname this
+// hostname 301s to at the edge (the common case is www -> apex).
+type DomainConfig struct {
+	Hostname   string `toml:"hostname"`
+	RedirectTo string `toml:"redirect_to,omitempty"`
 }
 
 type BuildConfig struct {

@@ -295,3 +295,57 @@ X-Frame-Options = "DENY"
 		t.Errorf("X-Frame-Options = %q, want %q", h2.Values["X-Frame-Options"], "DENY")
 	}
 }
+
+func TestLoadProjectConfig_Domains(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), `
+[site]
+name = "my-site"
+
+[[domains]]
+hostname = "example.com"
+
+[[domains]]
+hostname = "www.example.com"
+redirect_to = "example.com"
+`)
+
+	cfg, err := config.LoadProject(dir)
+	if err != nil {
+		t.Fatalf("LoadProject: %v", err)
+	}
+	if len(cfg.Domains) != 2 {
+		t.Fatalf("Domains len = %d, want 2", len(cfg.Domains))
+	}
+	if cfg.Domains[0].Hostname != "example.com" || cfg.Domains[0].RedirectTo != "" {
+		t.Errorf("apex = %+v, want hostname=example.com redirect_to=''", cfg.Domains[0])
+	}
+	if cfg.Domains[1].Hostname != "www.example.com" || cfg.Domains[1].RedirectTo != "example.com" {
+		t.Errorf("www = %+v, want hostname=www.example.com redirect_to=example.com", cfg.Domains[1])
+	}
+}
+
+func TestWriteProject_DomainsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.ProjectConfig{
+		Site: config.SiteConfig{Name: "my-site"},
+		Domains: []config.DomainConfig{
+			{Hostname: "example.com"},
+			{Hostname: "www.example.com", RedirectTo: "example.com"},
+		},
+	}
+	if err := config.WriteProject(dir, cfg); err != nil {
+		t.Fatalf("WriteProject: %v", err)
+	}
+
+	loaded, err := config.LoadProject(dir)
+	if err != nil {
+		t.Fatalf("LoadProject: %v", err)
+	}
+	if len(loaded.Domains) != 2 {
+		t.Fatalf("Domains len after round-trip = %d, want 2", len(loaded.Domains))
+	}
+	if loaded.Domains[1].RedirectTo != "example.com" {
+		t.Errorf("redirect_to lost in round-trip: %q", loaded.Domains[1].RedirectTo)
+	}
+}

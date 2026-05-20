@@ -276,3 +276,11 @@ func (c *Client) ListDomains(slug string) (*ListResponse[Domain], error) {
 func (c *Client) DeleteDomain(slug, domainID string) error {
 	return c.do(http.MethodDelete, "/sites/"+slug+"/domains/"+domainID, nil, nil)
 }
+
+func (c *Client) UpdateDomain(slug, domainID string, req UpdateDomainRequest) (*Domain, error) {
+	var resp Domain
+	if err := c.do(http.MethodPatch, "/sites/"+slug+"/domains/"+domainID, req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
