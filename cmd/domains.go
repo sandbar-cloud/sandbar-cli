@@ -68,10 +68,13 @@ func (cmd *DomainsAddCmd) Run(globals *Globals) error {
 		fmt.Fprintf(os.Stderr, "warning: domain added on server but failed to update .sandbar/config.toml: %v\n", err)
 	}
 
-	fmt.Printf("\nAdd this DNS record to verify ownership of %s:\n\n", output.Bold.Render(cmd.Hostname))
-	fmt.Printf("  Type:  %s\n", resp.DNSInstructions.RecordType)
-	fmt.Printf("  Name:  %s\n", resp.DNSInstructions.RecordName)
-	fmt.Printf("  Value: %s\n", resp.DNSInstructions.RecordValue)
+	fmt.Printf("\nVerify ownership of %s:\n\n", output.Bold.Render(cmd.Hostname))
+	if resp.DNSInstructions != "" {
+		// Indent the rendered instructions so they read as a block.
+		for _, line := range strings.Split(strings.TrimRight(resp.DNSInstructions, "\n"), "\n") {
+			fmt.Printf("  %s\n", line)
+		}
+	}
 	if cmd.RedirectTo != "" {
 		fmt.Printf("\nOnce verified, %s will 301 to %s.\n",
 			output.Bold.Render(cmd.Hostname),
