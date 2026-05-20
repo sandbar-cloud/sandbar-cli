@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -229,6 +231,11 @@ func ResolveAPIURL() string {
 }
 
 // LoadProject reads .sandbar/config.toml from the given directory.
+// Unknown keys are reported as errors (catches typos like `name` in a
+// `[[domains]]` block, or `[[sites]]` instead of `[[domains]]`). Each
+// declarative section is then validated for required fields so that
+// a missing `hostname` / `repository` fails at load time rather than
+// during the reconcile.
 func LoadProject(dir string) (*ProjectConfig, error) {
 	path := filepath.Join(dir, ".sandbar", "config.toml")
 	data, err := os.ReadFile(path)
@@ -236,10 +243,84 @@ func LoadProject(dir string) (*ProjectConfig, error) {
 		return nil, fmt.Errorf("no .sandbar/config.toml found. Run `sandbar init` first")
 	}
 	var cfg ProjectConfig
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	md, err := toml.Decode(string(data), &cfg)
+	if err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
+	if err := validateUnknownKeys(md); err != nil {
+		return nil, err
+	}
+	if err := validateProjectConfig(&cfg); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+// validateUnknownKeys returns a single error describing every key
+// in the file that didn't decode into ProjectConfig — typos and
+// renamed-fields are the common cases. The [env] table is whitelisted
+// because its shape is a free-form map[string]any and undecoded keys
+// inside it are user-defined environment variables, not config typos.
+func validateUnknownKeys(md toml.MetaData) error {
+	var unknown []string
+	for _, key := range md.Undecoded() {
+		k := key.String()
+		if strings.HasPrefix(k, "env.") || k == "env" {
+			continue
+		}
+		unknown = append(unknown, k)
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	return fmt.Errorf("unknown key(s) in .sandbar/config.toml — check for typos or removed fields:\n  - %s",
+		strings.Join(unknown, "\n  - "))
+}
+
+// validateProjectConfig surfaces required-field gaps so a deploy
+// doesn't pass an empty hostname or repository to the reconcile.
+// Returns a single error listing every problem found.
+func validateProjectConfig(cfg *ProjectConfig) error {
+	var problems []string
+
+	if cfg.Site.Slug == "" && cfg.Site.Name == "" {
+		problems = append(problems, "[site] must set `slug` (or legacy `name`)")
+	}
+
+	for i, d := range cfg.Domains {
+		if strings.TrimSpace(d.Hostname) == "" {
+			problems = append(problems, fmt.Sprintf("[[domains]] entry #%d is missing `hostname`", i+1))
+		}
+	}
+
+	for i, t := range cfg.Trusts {
+		if strings.TrimSpace(t.Repository) == "" {
+			problems = append(problems, fmt.Sprintf("[[trusts]] entry #%d is missing `repository`", i+1))
+		} else if !strings.Contains(t.Repository, "/") {
+			problems = append(problems, fmt.Sprintf("[[trusts]] entry #%d: repository %q must be in `<owner>/<repo>` form", i+1, t.Repository))
+		}
+	}
+
+	for i, r := range cfg.Redirects {
+		switch {
+		case strings.TrimSpace(r.From) == "":
+			problems = append(problems, fmt.Sprintf("[[redirects]] entry #%d is missing `from`", i+1))
+		case strings.TrimSpace(r.To) == "":
+			problems = append(problems, fmt.Sprintf("[[redirects]] entry #%d is missing `to`", i+1))
+		}
+	}
+
+	for i, h := range cfg.Headers {
+		if strings.TrimSpace(h.For) == "" {
+			problems = append(problems, fmt.Sprintf("[[headers]] entry #%d is missing `for`", i+1))
+		}
+	}
+
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("invalid .sandbar/config.toml:\n  - %s", strings.Join(problems, "\n  - "))
 }
 
 // GlobalConfigDir returns the default global config directory.
