@@ -397,10 +397,10 @@ func TestLoadProject_RejectsUnknownKeys(t *testing.T) {
 	cases := []struct {
 		name string
 		toml string
-		want string // substring expected in the error
+		want []string // substrings that must all appear in the error
 	}{
 		{
-			name: "domains entry with name instead of hostname",
+			name: "domains.name suggests hostname",
 			toml: `
 [site]
 slug = "s"
@@ -408,10 +408,10 @@ slug = "s"
 [[domains]]
 name = "example.com"
 `,
-			want: "domains",
+			want: []string{"domains.name", "did you mean `hostname`?"},
 		},
 		{
-			name: "[[sites]] instead of [[domains]]",
+			name: "[[sites]] suggests site",
 			toml: `
 [site]
 slug = "s"
@@ -419,16 +419,29 @@ slug = "s"
 [[sites]]
 hostname = "example.com"
 `,
-			want: "sites",
+			// site/sites differ by one character → top suggestion is `site`.
+			want: []string{"sites", "did you mean `site`?"},
 		},
 		{
-			name: "unknown field on [site]",
+			name: "unrecognised [site] field lists the valid set",
 			toml: `
 [site]
-slug                = "s"
-build_dir_unknown   = "dist"
+slug = "s"
+
+[site.zzzz_no_close_match]
 `,
-			want: "build_dir_unknown",
+			want: []string{"valid fields:", "slug", "name", "production_branch"},
+		},
+		{
+			name: "trusts.repo suggests repository",
+			toml: `
+[site]
+slug = "s"
+
+[[trusts]]
+repo = "owner/repo"
+`,
+			want: []string{"trusts.repo", "did you mean `repository`?"},
 		},
 	}
 	for _, c := range cases {
@@ -439,8 +452,10 @@ build_dir_unknown   = "dist"
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
-			if !strings.Contains(err.Error(), c.want) {
-				t.Errorf("error %q should mention %q", err, c.want)
+			for _, want := range c.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q should mention %q", err, want)
+				}
 			}
 		})
 	}

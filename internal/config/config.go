@@ -264,11 +264,12 @@ func LoadProject(dir string) (*ProjectConfig, error) {
 func validateUnknownKeys(md toml.MetaData) error {
 	var unknown []string
 	for _, key := range md.Undecoded() {
-		k := key.String()
-		if strings.HasPrefix(k, "env.") || k == "env" {
+		parts := []string(key)
+		if len(parts) > 0 && parts[0] == "env" {
+			// Free-form user env vars; not a config typo.
 			continue
 		}
-		unknown = append(unknown, k)
+		unknown = append(unknown, formatUnknownKey(parts))
 	}
 	if len(unknown) == 0 {
 		return nil
@@ -276,6 +277,160 @@ func validateUnknownKeys(md toml.MetaData) error {
 	sort.Strings(unknown)
 	return fmt.Errorf("unknown key(s) in .sandbar/config.toml — check for typos or removed fields:\n  - %s",
 		strings.Join(unknown, "\n  - "))
+}
+
+// knownFieldsBySection lists the legal field names for each section
+// of .sandbar/config.toml. The empty-string key holds the top-level
+// section names; subsections hold their leaf fields. Kept in sync
+// with the structs above.
+var knownFieldsBySection = map[string][]string{
+	"":          {"site", "build", "deploy", "preview", "env", "domains", "trusts", "redirects", "headers"},
+	"site":      {"slug", "name", "production_branch", "build_dir", "framework"},
+	"build":     {"command"},
+	"deploy":    {"auto_activate", "message_from_git"},
+	"preview":   {"default_expiry"},
+	"domains":   {"hostname", "redirect_to"},
+	"trusts":    {"provider", "repository", "ref_filter", "environment"},
+	"redirects": {"from", "to", "status", "force"},
+	"headers":   {"for", "values"},
+}
+
+// formatUnknownKey renders a "did you mean" suggestion next to the
+// offending key when there's a plausibly-close known field in the
+// same section. Without a close match we fall back to listing every
+// valid field so the user can spot the right one themselves.
+func formatUnknownKey(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	joined := strings.Join(parts, ".")
+
+	var section string
+	var leaf string
+	if len(parts) == 1 {
+		// Top-level table like `[[sites]]`.
+		section = ""
+		leaf = parts[0]
+	} else {
+		// A leaf field inside a known section, e.g. `domains.name`.
+		section = parts[0]
+		leaf = parts[len(parts)-1]
+	}
+
+	candidates, ok := knownFieldsBySection[section]
+	if !ok {
+		return joined
+	}
+
+	if best := bestSuggestion(leaf, candidates); best != "" {
+		return fmt.Sprintf("%s — did you mean `%s`?", joined, best)
+	}
+
+	// No close match: surface the whole legal set so the user can
+	// pick. Sort for stable output.
+	known := append([]string(nil), candidates...)
+	sort.Strings(known)
+	return fmt.Sprintf("%s (valid fields: %s)", joined, strings.Join(known, ", "))
+}
+
+// bestSuggestion picks the most likely intended field name. Substring
+// containment beats edit distance — `name` → `hostname`, `repo` →
+// `repository`, `ref` → `ref_filter` are all intuitive matches that
+// pure Levenshtein would miss. Falls back to closest Levenshtein when
+// no substring relationship exists, capped at distance 3 to avoid
+// suggesting nonsense for genuinely unknown keys.
+func bestSuggestion(unknown string, candidates []string) string {
+	if unknown == "" || len(candidates) == 0 {
+		return ""
+	}
+	lower := strings.ToLower(unknown)
+
+	// First pass: substring containment, picking the shortest hit so
+	// `name` prefers `hostname` over a hypothetical `hostname_alias`.
+	var substrBest string
+	for _, c := range candidates {
+		cl := strings.ToLower(c)
+		if cl == lower {
+			continue
+		}
+		if strings.Contains(cl, lower) || strings.Contains(lower, cl) {
+			if substrBest == "" || len(c) < len(substrBest) {
+				substrBest = c
+			}
+		}
+	}
+	if substrBest != "" {
+		return substrBest
+	}
+
+	// Second pass: closest Levenshtein within a small threshold.
+	if best, dist := closestMatch(unknown, candidates); best != "" && dist <= 3 {
+		return best
+	}
+	return ""
+}
+
+// closestMatch returns the candidate with the smallest Levenshtein
+// distance from s, along with that distance. Empty s or empty
+// candidates yields ("", -1).
+func closestMatch(s string, candidates []string) (string, int) {
+	if s == "" || len(candidates) == 0 {
+		return "", -1
+	}
+	bestDist := -1
+	best := ""
+	for _, c := range candidates {
+		d := levenshtein(s, c)
+		if bestDist < 0 || d < bestDist {
+			bestDist = d
+			best = c
+		}
+	}
+	return best, bestDist
+}
+
+// levenshtein computes the edit distance between two short strings.
+// Iterative two-row implementation; field names are tiny so the
+// O(len(a)*len(b)) cost is fine.
+func levenshtein(a, b string) int {
+	la := len(a)
+	lb := len(b)
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+	prev := make([]int, lb+1)
+	curr := make([]int, lb+1)
+	for j := 0; j <= lb; j++ {
+		prev[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		curr[0] = i
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			curr[j] = min3(curr[j-1]+1, prev[j]+1, prev[j-1]+cost)
+		}
+		prev, curr = curr, prev
+	}
+	return prev[lb]
+}
+
+func min3(a, b, c int) int {
+	if a < b {
+		if a < c {
+			return a
+		}
+		return c
+	}
+	if b < c {
+		return b
+	}
+	return c
 }
 
 // validateProjectConfig surfaces required-field gaps so a deploy
