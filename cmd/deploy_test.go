@@ -341,11 +341,12 @@ func TestRunBuild_SkipBuildShortCircuits(t *testing.T) {
 	}
 }
 
-func TestReconcileDomains_AddsDeletesAndWarnsOnDrift(t *testing.T) {
+func TestReconcileDomains_AddsDeletesAndPatchesDrift(t *testing.T) {
 	var (
-		mu     sync.Mutex
-		calls  []string
-		listed bool
+		mu          sync.Mutex
+		calls       []string
+		patchedBody map[string]any
+		listed      bool
 	)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -358,7 +359,7 @@ func TestReconcileDomains_AddsDeletesAndWarnsOnDrift(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/sites/site_abc/domains":
 			// Server has apex (matches desired), legacy.example.io
 			// (should be deleted), and www.example.com with a stale
-			// redirect_to (should produce a drift warning).
+			// redirect_to (should be PATCHead back to the desired value).
 			listed = true
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []map[string]any{
@@ -368,7 +369,6 @@ func TestReconcileDomains_AddsDeletesAndWarnsOnDrift(t *testing.T) {
 				},
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/sites/site_abc/domains":
-			// The "added" entry — partner.example.com — gets created.
 			body := map[string]any{}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -381,6 +381,17 @@ func TestReconcileDomains_AddsDeletesAndWarnsOnDrift(t *testing.T) {
 			})
 		case r.Method == http.MethodDelete && r.URL.Path == "/sites/site_abc/domains/dom_legacy":
 			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPatch && r.URL.Path == "/sites/site_abc/domains/dom_www":
+			body := map[string]any{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			patchedBody = body
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":          "dom_www",
+				"hostname":    "www.example.com",
+				"redirect_to": body["redirect_to"],
+			})
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -404,19 +415,17 @@ func TestReconcileDomains_AddsDeletesAndWarnsOnDrift(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	wantPost := "POST /sites/site_abc/domains"
-	wantDelete := "DELETE /sites/site_abc/domains/dom_legacy"
-	if !containsCall(calls, wantPost) {
-		t.Errorf("missing add call %q; got %v", wantPost, calls)
+	if !containsCall(calls, "POST /sites/site_abc/domains") {
+		t.Errorf("missing add call; got %v", calls)
 	}
-	if !containsCall(calls, wantDelete) {
-		t.Errorf("missing delete call %q; got %v", wantDelete, calls)
+	if !containsCall(calls, "DELETE /sites/site_abc/domains/dom_legacy") {
+		t.Errorf("missing delete call; got %v", calls)
 	}
-	// No PATCH/PUT should fire for the redirect_to drift — warn-only.
-	for _, c := range calls {
-		if c[:3] == "PUT" || c[:3] == "PAT" {
-			t.Errorf("unexpected update call %q (drift should be warn-only)", c)
-		}
+	if !containsCall(calls, "PATCH /sites/site_abc/domains/dom_www") {
+		t.Errorf("missing patch call; got %v", calls)
+	}
+	if got := patchedBody["redirect_to"]; got != "example.com" {
+		t.Errorf("patch body redirect_to = %v, want %q", got, "example.com")
 	}
 }
 
