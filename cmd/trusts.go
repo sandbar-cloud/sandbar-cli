@@ -42,7 +42,6 @@ func (cmd *TrustsAddCmd) Run(globals *Globals) error {
 
 	c := globals.Client()
 	trust, err := c.AddTrust(slug, client.AddTrustRequest{
-		Provider:    cmd.Provider,
 		Repository:  cmd.Repository,
 		RefFilter:   cmd.RefFilter,
 		Environment: cmd.Environment,
