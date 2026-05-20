@@ -40,8 +40,9 @@ func (g *Globals) SiteSlug() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if cfg.Site.Name == "" {
-		return "", fmt.Errorf("no site name in .sandbar/config.toml. Run `sandbar init`")
+	slug := cfg.Site.EffectiveSlug()
+	if slug == "" {
+		return "", fmt.Errorf("no site slug in .sandbar/config.toml. Run `sandbar init`")
 	}
-	return cfg.Site.Name, nil
+	return slug, nil
 }

@@ -72,9 +72,44 @@ func (c *ProjectConfig) HasEnv(name string) bool {
 }
 
 type SiteConfig struct {
-	Name      string `toml:"name"`
-	BuildDir  string `toml:"build_dir"`
-	Framework string `toml:"framework"`
+	// Slug is the URL-safe identity for the site (mataki-web in
+	// `mataki-web.on.sandbar.cloud`). Immutable on the server.
+	Slug string `toml:"slug,omitempty"`
+	// Name is the display name shown in the dashboard. Optional.
+	// When set, synced to the server on every `sandbar deploy`.
+	Name string `toml:"name,omitempty"`
+	// ProductionBranch is the git branch the server treats as
+	// production. Branches matching this name deploy to the live URL;
+	// others land on `<branch>--<slug>.on.sandbar.cloud` previews.
+	// Defaults to "main" on the server when unset.
+	ProductionBranch string `toml:"production_branch,omitempty"`
+	BuildDir         string `toml:"build_dir,omitempty"`
+	Framework        string `toml:"framework,omitempty"`
+}
+
+// EffectiveSlug returns the site identity, preferring the newer Slug
+// field and falling back to Name for back-compat with configs written
+// before the slug/name split (where Name held the slug). The fallback
+// is gated on Slug being empty — a config with both set means the
+// user has migrated and Name is the display name.
+func (s *SiteConfig) EffectiveSlug() string {
+	if s.Slug != "" {
+		return s.Slug
+	}
+	return s.Name
+}
+
+// DisplayName returns the display name to sync to the server, or ""
+// when the config is in legacy mode (Slug empty, Name holds the
+// slug — nothing to sync there). New-shape configs that omit Name
+// also return "" so deploy reconcile doesn't try to push an empty
+// name and clobber whatever's on the server.
+func (s *SiteConfig) DisplayName() string {
+	if s.Slug == "" {
+		// Legacy mode: Name is the slug, not a display name.
+		return ""
+	}
+	return s.Name
 }
 
 type DeployConfig struct {
