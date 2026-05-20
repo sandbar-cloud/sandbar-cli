@@ -459,3 +459,57 @@ func containsCall(calls []string, want string) bool {
 	}
 	return false
 }
+
+func TestReconcilePreviewExpiry_PatchesOnDrift(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		calls   []string
+		patched map[string]any
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/sites/site_abc":
+			_ = json.NewEncoder(w).Encode(client.Site{Slug: "site_abc", PreviewExpiry: "7d"})
+		case r.Method == http.MethodPatch && r.URL.Path == "/sites/site_abc":
+			body := map[string]any{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			patched = body
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(client.Site{Slug: "site_abc", PreviewExpiry: "30d"})
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "tok", "test")
+	reconcilePreviewExpiry(c, "site_abc", "30d")
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !containsCall(calls, "PATCH /sites/site_abc") {
+		t.Errorf("expected PATCH on drift; got %v", calls)
+	}
+	if got := patched["preview_expiry"]; got != "30d" {
+		t.Errorf("patched preview_expiry = %v, want %q", got, "30d")
+	}
+}
+
+func TestReconcilePreviewExpiry_NoopWhenMatching(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			t.Errorf("server and config already match; PATCH must not fire")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(client.Site{Slug: "site_abc", PreviewExpiry: "7d"})
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "tok", "test")
+	reconcilePreviewExpiry(c, "site_abc", "7d")
+}
