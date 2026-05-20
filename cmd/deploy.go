@@ -265,9 +265,6 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 		if cfg.Preview.DefaultExpiry != "" {
 			reconcilePreviewExpiry(c, slug, cfg.Preview.DefaultExpiry)
 		}
-	} else if hasReconcilableConfig(cfg) {
-		fmt.Printf("  (preview deploy on %s — skipping reconcile of [site]/[[domains]]/[[trusts]]/[preview])\n",
-			output.Bold.Render(branch))
 	}
 
 	site, err := c.GetSite(slug)
@@ -384,21 +381,6 @@ func isProductionDeploy(branch, configuredProduction string) bool {
 		prod = "main"
 	}
 	return branch == prod
-}
-
-// hasReconcilableConfig reports whether the project has opted into
-// any of the declarative blocks the reconcile would touch. Used to
-// decide whether to print the "preview deploy — skipping reconcile"
-// notice; projects that haven't adopted any of these shouldn't see
-// the message at all.
-func hasReconcilableConfig(cfg *config.ProjectConfig) bool {
-	if cfg.Domains != nil || cfg.Trusts != nil {
-		return true
-	}
-	if cfg.Preview.DefaultExpiry != "" {
-		return true
-	}
-	return cfg.Site.DisplayName() != "" || cfg.Site.ProductionBranch != ""
 }
 
 // reconcileTrusts brings the server's OIDC trust list into sync with

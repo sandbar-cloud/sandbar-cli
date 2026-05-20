@@ -583,24 +583,6 @@ func TestIsProductionDeploy(t *testing.T) {
 	}
 }
 
-func TestHasReconcilableConfig(t *testing.T) {
-	empty := &config.ProjectConfig{}
-	if hasReconcilableConfig(empty) {
-		t.Error("empty config should not be reconcilable")
-	}
-	withDomain := &config.ProjectConfig{
-		Domains: []config.DomainConfig{{Hostname: "example.com"}},
-	}
-	if !hasReconcilableConfig(withDomain) {
-		t.Error("config with [[domains]] should be reconcilable")
-	}
-	withSite := &config.ProjectConfig{
-		Site: config.SiteConfig{Slug: "x", Name: "Display"},
-	}
-	if !hasReconcilableConfig(withSite) {
-		t.Error("config with [site] display name should be reconcilable")
-	}
-}
 
 func TestReconcileTrusts_AddsDeletes(t *testing.T) {
 	var (
