@@ -319,10 +319,19 @@ func reconcileDomains(c *client.Client, slug string, desired []config.DomainConf
 		if !ok || d.RedirectTo == a.RedirectTo {
 			continue
 		}
-		fmt.Fprintf(os.Stderr,
-			"  ! domain %s redirect_to drift: config=%q server=%q (update unsupported; delete + re-add to change)\n",
-			host, d.RedirectTo, a.RedirectTo,
-		)
+		newRedirect := d.RedirectTo
+		if _, err := c.UpdateDomain(slug, a.ID, client.UpdateDomainRequest{RedirectTo: &newRedirect}); err != nil {
+			fmt.Fprintf(os.Stderr, "  ! domain reconcile: update %s redirect_to failed: %v\n", host, err)
+			continue
+		}
+		switch {
+		case newRedirect == "":
+			fmt.Printf("  ~ domain %s: cleared redirect (was %s)\n", host, a.RedirectTo)
+		case a.RedirectTo == "":
+			fmt.Printf("  ~ domain %s: now redirects to %s\n", host, newRedirect)
+		default:
+			fmt.Printf("  ~ domain %s: redirect changed %s → %s\n", host, a.RedirectTo, newRedirect)
+		}
 	}
 }
 

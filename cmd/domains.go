@@ -14,6 +14,7 @@ import (
 
 type DomainsCmd struct {
 	Add    DomainsAddCmd    `cmd:"" help:"Add a custom domain."`
+	Update DomainsUpdateCmd `cmd:"" help:"Update settings on an existing domain."`
 	List   DomainsListCmd   `cmd:"" help:"List domains."`
 	Verify DomainsVerifyCmd `cmd:"" help:"Re-check domain verification."`
 	Delete DomainsDeleteCmd `cmd:"" help:"Delete a custom domain."`
@@ -78,6 +79,82 @@ func (cmd *DomainsAddCmd) Run(globals *Globals) error {
 		)
 	}
 	fmt.Printf("\nThen run: %s\n\n", output.Dim.Render("sandbar domains verify "+cmd.Hostname))
+	return nil
+}
+
+type DomainsUpdateCmd struct {
+	Hostname   string `arg:"" help:"Domain hostname to update."`
+	RedirectTo string `help:"Set the canonical hostname this domain 301s to."`
+	NoRedirect bool   `name:"no-redirect" help:"Clear the canonical redirect target so this domain serves content again."`
+}
+
+func (cmd *DomainsUpdateCmd) Run(globals *Globals) error {
+	if cmd.RedirectTo != "" && cmd.NoRedirect {
+		return fmt.Errorf("--redirect-to and --no-redirect are mutually exclusive")
+	}
+	if cmd.RedirectTo == "" && !cmd.NoRedirect {
+		return fmt.Errorf("pass --redirect-to=<hostname> or --no-redirect")
+	}
+
+	cfg, err := globals.ProjectConfig()
+	if err != nil {
+		return err
+	}
+	slug := cfg.Site.Name
+	if slug == "" {
+		return fmt.Errorf("no site name in .sandbar/config.toml. Run `sandbar init`")
+	}
+	c := globals.Client()
+
+	// Resolve the domain ID by hostname — the API is keyed by ID for
+	// updates, but users think in hostnames.
+	resp, err := c.ListDomains(slug)
+	if err != nil {
+		return err
+	}
+	var target *client.Domain
+	for i, d := range resp.Items {
+		if d.Hostname == cmd.Hostname {
+			target = &resp.Items[i]
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("domain %q not found on this site", cmd.Hostname)
+	}
+
+	newRedirect := cmd.RedirectTo // empty when --no-redirect was passed
+	if _, err := c.UpdateDomain(slug, target.ID, client.UpdateDomainRequest{
+		RedirectTo: &newRedirect,
+	}); err != nil {
+		return err
+	}
+
+	// Mirror the change into config.toml so the deploy reconcile
+	// won't flag drift on the next run.
+	upserted := false
+	for i, d := range cfg.Domains {
+		if d.Hostname == cmd.Hostname {
+			cfg.Domains[i].RedirectTo = newRedirect
+			upserted = true
+			break
+		}
+	}
+	if !upserted {
+		cfg.Domains = append(cfg.Domains, config.DomainConfig{
+			Hostname:   cmd.Hostname,
+			RedirectTo: newRedirect,
+		})
+	}
+	if err := config.WriteProject(globals.WorkDir(), cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: server updated but failed to update .sandbar/config.toml: %v\n", err)
+	}
+
+	if newRedirect == "" {
+		fmt.Printf("Cleared redirect on %s. It will serve content directly.\n", output.Bold.Render(cmd.Hostname))
+	} else {
+		fmt.Printf("%s now redirects to %s.\n", output.Bold.Render(cmd.Hostname), output.Bold.Render(newRedirect))
+	}
 	return nil
 }
 
