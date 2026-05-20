@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -118,6 +120,77 @@ func TestSyncCmd_RunsAllReconcilersWithoutDeploy(t *testing.T) {
 			t.Errorf("expected call %q; got %v", want, calls)
 		}
 	}
+}
+
+// TestSyncCmd_PrintsProgress is the regression guard for the
+// "sync silently exits" bug: every section must announce itself so
+// users see what ran even when there are no diffs. We capture
+// stdout, run a no-op sync, and assert the headers + skip notes +
+// final tick are present.
+func TestSyncCmd_PrintsProgress(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/sites/site_abc":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":                "site_abc",
+				"slug":              "site_abc",
+				"name":              "site_abc",
+				"production_branch": "main",
+			})
+		}
+	}))
+	defer srv.Close()
+
+	out := captureStdoutStderr(t, func() {
+		c := client.New(srv.URL, "tok", "test")
+		cfg := &config.ProjectConfig{
+			Site: config.SiteConfig{Name: "site_abc", ProductionBranch: "main"},
+		}
+		if err := (&SyncCmd{}).RunWith(c, "site_abc", cfg); err != nil {
+			t.Fatalf("sync: %v", err)
+		}
+	})
+
+	for _, want := range []string{
+		"Syncing",
+		"site_abc",
+		"site metadata",
+		"domains",
+		"OIDC trusts",
+		"preview expiry",
+		"no config",
+		"Done",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected sync output to contain %q; got:\n%s", want, out)
+		}
+	}
+}
+
+func captureStdoutStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	rOut, wOut, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	rErr, wErr, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	origOut, origErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = wOut, wErr
+	defer func() { os.Stdout, os.Stderr = origOut, origErr }()
+
+	doneOut := make(chan string, 1)
+	doneErr := make(chan string, 1)
+	go func() { b, _ := io.ReadAll(rOut); doneOut <- string(b) }()
+	go func() { b, _ := io.ReadAll(rErr); doneErr <- string(b) }()
+
+	fn()
+	_ = wOut.Close()
+	_ = wErr.Close()
+	return <-doneOut + <-doneErr
 }
 
 // TestSyncCmd_NilSectionsAreSkipped guards against the helpers being
