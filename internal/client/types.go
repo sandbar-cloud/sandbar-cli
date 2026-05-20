@@ -118,8 +118,12 @@ type Trust struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// AddTrustRequest is the body sent to POST /sites/{slug}/trusts.
+// The server hardcodes provider="github" and rejects unknown fields
+// via its strict JSON schema validation, so the wire body never
+// includes a provider key. (When the server eventually supports
+// multiple providers, add the field back here in lockstep.)
 type AddTrustRequest struct {
-	Provider    string `json:"provider,omitempty"`
 	Repository  string `json:"repository"`
 	RefFilter   string `json:"ref_filter,omitempty"`
 	Environment string `json:"environment,omitempty"`

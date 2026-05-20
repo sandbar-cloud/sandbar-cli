@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sandbar-cloud/sandbar-cli/internal/client"
@@ -298,22 +299,41 @@ func reconcileDomains(c *client.Client, slug string, desired []config.DomainConf
 
 	want := map[string]config.DomainConfig{}
 	for _, d := range desired {
-		want[d.Hostname] = d
+		host := strings.TrimSpace(d.Hostname)
+		if host == "" {
+			fmt.Fprintf(os.Stderr, "  ! domain reconcile: skipping [[domains]] entry with empty hostname\n")
+			continue
+		}
+		if !strings.Contains(host, ".") {
+			fmt.Fprintf(os.Stderr, "  ! domain reconcile: skipping invalid hostname %q (must contain a dot)\n", host)
+			continue
+		}
+		want[host] = d
 	}
 	have := map[string]client.Domain{}
 	for _, d := range resp.Items {
 		have[d.Hostname] = d
 	}
 
+	addFailed := 0
 	for host, d := range want {
 		if _, ok := have[host]; ok {
 			continue
 		}
 		if _, err := c.AddDomain(slug, client.AddDomainRequest{Hostname: host, RedirectTo: d.RedirectTo}); err != nil {
 			fmt.Fprintf(os.Stderr, "  ! domain reconcile: add %s failed: %v\n", host, err)
+			addFailed++
 			continue
 		}
 		fmt.Printf("  + domain added: %s (run `sandbar domains verify %s` after DNS is set)\n", host, host)
+	}
+
+	// Safety: same rationale as reconcileTrusts — if any add failed,
+	// skip every delete so a failed replacement doesn't leave the site
+	// without the domain a user expected to be there.
+	if addFailed > 0 {
+		fmt.Fprintf(os.Stderr, "  ! domain reconcile: %d add(s) failed — skipping delete phase to preserve existing domains\n", addFailed)
+		return
 	}
 
 	for host, d := range have {
@@ -412,22 +432,32 @@ func reconcileTrusts(c *client.Client, slug string, desired []config.TrustConfig
 		}] = t
 	}
 
+	addFailed := 0
 	for key, t := range want {
 		if _, ok := have[key]; ok {
 			continue
 		}
 		if _, err := c.AddTrust(slug, client.AddTrustRequest{
-			Provider:    t.EffectiveProvider(),
 			Repository:  t.Repository,
 			RefFilter:   t.EffectiveRefFilter(),
 			Environment: t.EffectiveEnvironment(),
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "  ! trust reconcile: add %s (%s/%s) failed: %v\n",
+			fmt.Fprintf(os.Stderr, "  ! trust reconcile: add %s (ref=%s env=%s) failed: %v\n",
 				t.Repository, t.EffectiveRefFilter(), t.EffectiveEnvironment(), err)
+			addFailed++
 			continue
 		}
 		fmt.Printf("  + trust added: %s (ref=%s env=%s)\n",
 			t.Repository, t.EffectiveRefFilter(), t.EffectiveEnvironment())
+	}
+
+	// Safety: if any add failed, skip every delete. The user may have
+	// meant to replace an existing trust they're about to delete — a
+	// failed add followed by a successful delete would orphan them out
+	// of their own site (the auth trust would be gone).
+	if addFailed > 0 {
+		fmt.Fprintf(os.Stderr, "  ! trust reconcile: %d add(s) failed — skipping delete phase to preserve existing trusts\n", addFailed)
+		return
 	}
 
 	for key, t := range have {

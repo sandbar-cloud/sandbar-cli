@@ -378,7 +378,7 @@ func TestReconcileDomains_AddsDeletesAndPatchesDrift(t *testing.T) {
 				"redirect_to":         body["redirect_to"],
 				"verification_status": "pending",
 				"certificate_status":  "pending",
-				"dns_instructions":    map[string]string{"record_type": "TXT", "record_name": "_sandbar", "record_value": "x"},
+				"dns_instructions":    "Add a TXT record for _sandbar with value x",
 			})
 		case r.Method == http.MethodDelete && r.URL.Path == "/sites/site_abc/domains/dom_legacy":
 			w.WriteHeader(http.StatusNoContent)
@@ -707,6 +707,104 @@ func TestReconcileTrusts_DefaultsApplied(t *testing.T) {
 	c := client.New(srv.URL, "tok", "test")
 	reconcileTrusts(c, "site_abc", []config.TrustConfig{
 		{Repository: "mataki-dev/mataki-web"}, // bare entry, defaults match
+	})
+}
+
+// TestReconcileTrusts_AddFailureSkipsDelete is the regression guard
+// for the user-reported orphan-out-of-your-own-site bug. When an add
+// fails (here, the server rejects with validation error), the delete
+// phase must be skipped entirely so a misconfigured replacement
+// doesn't take down the existing auth trust.
+func TestReconcileTrusts_AddFailureSkipsDelete(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"id":          "trust_existing",
+					"provider":    "github",
+					"repository":  "mataki-dev/mataki-web",
+					"ref_filter":  "*",
+					"environment": "*",
+				},
+			})
+		case r.Method == http.MethodPost:
+			http.Error(w, `{"detail":"validation failed"}`, http.StatusBadRequest)
+		case r.Method == http.MethodDelete:
+			t.Errorf("DELETE must not fire when an earlier POST failed; got %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "tok", "test")
+	reconcileTrusts(c, "site_abc", []config.TrustConfig{
+		// Different env from what's on the server (which has env="*").
+		// The add will fail; the existing trust must NOT be deleted.
+		{Repository: "mataki-dev/mataki-web", Environment: "production"},
+	})
+}
+
+// TestReconcileDomains_AddFailureSkipsDelete: same safety net for the
+// domains reconcile.
+func TestReconcileDomains_AddFailureSkipsDelete(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{"id": "dom_existing", "hostname": "example.com", "verification_status": "verified", "certificate_status": "active"},
+				},
+			})
+		case r.Method == http.MethodPost:
+			http.Error(w, `{"detail":"hostname already claimed"}`, http.StatusConflict)
+		case r.Method == http.MethodDelete:
+			t.Errorf("DELETE must not fire when an earlier POST failed; got %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "tok", "test")
+	reconcileDomains(c, "site_abc", []config.DomainConfig{
+		// New domain that the server will reject. Existing example.com
+		// (absent from desired) must NOT be deleted.
+		{Hostname: "rejected.example.com"},
+	})
+}
+
+// TestReconcileDomains_SkipsEmptyHostnames: a [[domains]] entry that
+// somehow has an empty hostname must not be turned into an API call
+// with `hostname=""`.
+func TestReconcileDomains_SkipsEmptyHostnames(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{}})
+		case r.Method == http.MethodPost:
+			body := map[string]any{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if h, _ := body["hostname"].(string); h == "" {
+				t.Errorf("server received POST with empty hostname: %v", body)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":                  "dom_ok",
+				"hostname":            body["hostname"],
+				"verification_status": "pending",
+				"certificate_status":  "pending",
+				"dns_instructions":    "Add a TXT record",
+			})
+		}
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "tok", "test")
+	reconcileDomains(c, "site_abc", []config.DomainConfig{
+		{Hostname: ""},                  // skipped
+		{Hostname: "  "},                // skipped (whitespace only)
+		{Hostname: "no-dot-here"},       // skipped (no dot)
+		{Hostname: "real.example.com"},  // accepted
 	})
 }
 
