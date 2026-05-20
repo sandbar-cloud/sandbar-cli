@@ -248,11 +248,28 @@ func (c *Client) GetDeploy(slug, deployID string) (*Deploy, error) {
 }
 
 func (c *Client) SearchDeploys(slug string) (*SearchResponse[Deploy], error) {
+	return c.SearchDeploysWith(slug, SearchDeploysRequest{})
+}
+
+// SearchDeploysRequest mirrors the subset of the server's SearchRequest
+// the CLI uses today. Filter values follow the {field: {op: value}}
+// shape — `{"branch": {"eq": "pr-1"}}`, `{"status": {"in": ["superseded", "ready"]}}`, etc.
+type SearchDeploysRequest struct {
+	Filter map[string]map[string]any `json:"filter,omitempty"`
+	Limit  *int                      `json:"limit,omitempty"`
+	Cursor string                    `json:"cursor,omitempty"`
+}
+
+func (c *Client) SearchDeploysWith(slug string, req SearchDeploysRequest) (*SearchResponse[Deploy], error) {
 	var resp SearchResponse[Deploy]
-	if err := c.do(http.MethodPost, "/sites/"+slug+"/deploys/search", struct{}{}, &resp); err != nil {
+	if err := c.do(http.MethodPost, "/sites/"+slug+"/deploys/search", req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
+}
+
+func (c *Client) DeleteDeploy(slug, deployID string) error {
+	return c.do(http.MethodDelete, "/sites/"+slug+"/deploys/"+deployID, nil, nil)
 }
 
 // --- Domains ---
