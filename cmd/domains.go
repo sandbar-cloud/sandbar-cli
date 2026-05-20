@@ -30,7 +30,7 @@ func (cmd *DomainsAddCmd) Run(globals *Globals) error {
 	if err != nil {
 		return err
 	}
-	slug := cfg.Site.Name
+	slug := cfg.Site.EffectiveSlug()
 	if slug == "" {
 		return fmt.Errorf("no site name in .sandbar/config.toml. Run `sandbar init`")
 	}
@@ -103,7 +103,7 @@ func (cmd *DomainsUpdateCmd) Run(globals *Globals) error {
 	if err != nil {
 		return err
 	}
-	slug := cfg.Site.Name
+	slug := cfg.Site.EffectiveSlug()
 	if slug == "" {
 		return fmt.Errorf("no site name in .sandbar/config.toml. Run `sandbar init`")
 	}
@@ -242,7 +242,7 @@ func (cmd *DomainsDeleteCmd) Run(globals *Globals) error {
 	if err != nil {
 		return err
 	}
-	slug := cfg.Site.Name
+	slug := cfg.Site.EffectiveSlug()
 	if slug == "" {
 		return fmt.Errorf("no site name in .sandbar/config.toml. Run `sandbar init`")
 	}

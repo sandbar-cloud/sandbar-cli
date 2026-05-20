@@ -27,8 +27,11 @@ func TestInitCmd_CreatesConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config not written: %v", err)
 	}
-	if cfg.Site.Name != "my-site" {
-		t.Errorf("site name = %q, want %q", cfg.Site.Name, "my-site")
+	if cfg.Site.Slug != "my-site" {
+		t.Errorf("site slug = %q, want %q", cfg.Site.Slug, "my-site")
+	}
+	if cfg.Site.ProductionBranch != "main" {
+		t.Errorf("production_branch = %q, want %q", cfg.Site.ProductionBranch, "main")
 	}
 	if cfg.Site.BuildDir != "dist" {
 		t.Errorf("build_dir = %q, want %q", cfg.Site.BuildDir, "dist")

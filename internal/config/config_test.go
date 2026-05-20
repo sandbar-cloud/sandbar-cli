@@ -328,7 +328,7 @@ redirect_to = "example.com"
 func TestWriteProject_DomainsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.ProjectConfig{
-		Site: config.SiteConfig{Name: "my-site"},
+		Site: config.SiteConfig{Slug: "my-site"},
 		Domains: []config.DomainConfig{
 			{Hostname: "example.com"},
 			{Hostname: "www.example.com", RedirectTo: "example.com"},
@@ -347,5 +347,47 @@ func TestWriteProject_DomainsRoundTrip(t *testing.T) {
 	}
 	if loaded.Domains[1].RedirectTo != "example.com" {
 		t.Errorf("redirect_to lost in round-trip: %q", loaded.Domains[1].RedirectTo)
+	}
+}
+
+func TestSiteConfig_EffectiveSlug_NewShape(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), `
+[site]
+slug              = "mataki-web"
+name              = "Mataki Web"
+production_branch = "trunk"
+`)
+	cfg, err := config.LoadProject(dir)
+	if err != nil {
+		t.Fatalf("LoadProject: %v", err)
+	}
+	if got := cfg.Site.EffectiveSlug(); got != "mataki-web" {
+		t.Errorf("EffectiveSlug = %q, want %q", got, "mataki-web")
+	}
+	if got := cfg.Site.DisplayName(); got != "Mataki Web" {
+		t.Errorf("DisplayName = %q, want %q", got, "Mataki Web")
+	}
+	if cfg.Site.ProductionBranch != "trunk" {
+		t.Errorf("ProductionBranch = %q, want %q", cfg.Site.ProductionBranch, "trunk")
+	}
+}
+
+func TestSiteConfig_EffectiveSlug_LegacyShape(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".sandbar", "config.toml"), `
+[site]
+name = "mataki-web"
+`)
+	cfg, err := config.LoadProject(dir)
+	if err != nil {
+		t.Fatalf("LoadProject: %v", err)
+	}
+	if got := cfg.Site.EffectiveSlug(); got != "mataki-web" {
+		t.Errorf("legacy fallback: EffectiveSlug = %q, want %q", got, "mataki-web")
+	}
+	// In legacy mode, Name holds the slug — not a display name to sync.
+	if got := cfg.Site.DisplayName(); got != "" {
+		t.Errorf("legacy fallback: DisplayName = %q, want empty (would clobber server name)", got)
 	}
 }

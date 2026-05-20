@@ -46,7 +46,7 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 		}
 	}
 
-	slug := cfg.Site.Name
+	slug := cfg.Site.EffectiveSlug()
 	if slug == "" {
 		return fmt.Errorf("no site name in .sandbar/config.toml. Run `sandbar init`")
 	}
@@ -252,6 +252,7 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 	// Authoritative: server is brought into sync with config. Skipped when
 	// the block is absent (nil) so projects that haven't adopted the
 	// declarative shape aren't surprised by deletes.
+	reconcileSite(c, slug, cfg.Site)
 	if cfg.Domains != nil {
 		reconcileDomains(c, slug, cfg.Domains)
 	}
@@ -335,6 +336,48 @@ func reconcileDomains(c *client.Client, slug string, desired []config.DomainConf
 		default:
 			fmt.Printf("  ~ domain %s: redirect changed %s → %s\n", host, a.RedirectTo, newRedirect)
 		}
+	}
+}
+
+// reconcileSite syncs the mutable [site] fields — display name and
+// production_branch — against the server. A no-op when nothing in
+// config sets a value (legacy configs that only have the slug under
+// `site.name` skip the name sync entirely; see SiteConfig.DisplayName).
+// Failures are warnings, not fatal — the deploy already succeeded.
+func reconcileSite(c *client.Client, slug string, cfgSite config.SiteConfig) {
+	desiredName := cfgSite.DisplayName()
+	desiredBranch := cfgSite.ProductionBranch
+	if desiredName == "" && desiredBranch == "" {
+		return
+	}
+
+	site, err := c.GetSite(slug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ! site reconcile: get site failed: %v\n", err)
+		return
+	}
+
+	var req client.UpdateSiteRequest
+	if desiredName != "" && site.Name != desiredName {
+		req.Name = &desiredName
+	}
+	if desiredBranch != "" && site.ProductionBranch != desiredBranch {
+		req.ProductionBranch = &desiredBranch
+	}
+	if req.Name == nil && req.ProductionBranch == nil {
+		return
+	}
+
+	updated, err := c.UpdateSite(slug, req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ! site reconcile: update failed: %v\n", err)
+		return
+	}
+	if req.Name != nil {
+		fmt.Printf("  ~ site name: %q → %q\n", site.Name, updated.Name)
+	}
+	if req.ProductionBranch != nil {
+		fmt.Printf("  ~ production branch: %s → %s\n", site.ProductionBranch, updated.ProductionBranch)
 	}
 }
 

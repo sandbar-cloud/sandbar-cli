@@ -68,9 +68,10 @@ func (cmd *InitCmd) Run(globals *Globals) error {
 
 	cfg := &config.ProjectConfig{
 		Site: config.SiteConfig{
-			Name:      name,
-			BuildDir:  buildDir,
-			Framework: framework,
+			Slug:             name,
+			ProductionBranch: "main",
+			BuildDir:         buildDir,
+			Framework:        framework,
 		},
 		Deploy: config.DeployConfig{
 			AutoActivate:   true,

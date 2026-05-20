@@ -500,6 +500,65 @@ func TestReconcilePreviewExpiry_PatchesOnDrift(t *testing.T) {
 	}
 }
 
+func TestReconcileSite_PatchesNameAndProductionBranch(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		calls   []string
+		patched map[string]any
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/sites/site_abc":
+			_ = json.NewEncoder(w).Encode(client.Site{Slug: "site_abc", Name: "old", ProductionBranch: "main"})
+		case r.Method == http.MethodPatch && r.URL.Path == "/sites/site_abc":
+			body := map[string]any{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			patched = body
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(client.Site{
+				Slug: "site_abc", Name: "Mataki Web", ProductionBranch: "trunk",
+			})
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "tok", "test")
+	reconcileSite(c, "site_abc", config.SiteConfig{
+		Slug:             "site_abc",
+		Name:             "Mataki Web",
+		ProductionBranch: "trunk",
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !containsCall(calls, "PATCH /sites/site_abc") {
+		t.Errorf("expected PATCH; got %v", calls)
+	}
+	if patched["name"] != "Mataki Web" || patched["production_branch"] != "trunk" {
+		t.Errorf("patched body = %v, want name + production_branch set", patched)
+	}
+}
+
+func TestReconcileSite_SkipsLegacyShape(t *testing.T) {
+	// Slug is empty; Name holds the slug (legacy). DisplayName() returns
+	// "", and ProductionBranch is unset, so the helper should never
+	// even GET the site.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected %s %s — legacy config should be a no-op", r.Method, r.URL.Path)
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "tok", "test")
+	reconcileSite(c, "site_abc", config.SiteConfig{Name: "site_abc"})
+}
+
 func TestReconcilePreviewExpiry_NoopWhenMatching(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
