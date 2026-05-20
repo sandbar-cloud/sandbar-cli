@@ -560,6 +560,48 @@ func TestReconcileSite_SkipsLegacyShape(t *testing.T) {
 	reconcileSite(c, "site_abc", config.SiteConfig{Name: "site_abc"})
 }
 
+func TestIsProductionDeploy(t *testing.T) {
+	cases := []struct {
+		branch, configured string
+		want               bool
+	}{
+		{"", "", true},                // un-branched default deploy
+		{"", "main", true},            // configured production, no branch arg
+		{"main", "", true},            // server default is main
+		{"main", "main", true},        // explicit match
+		{"trunk", "trunk", true},      // non-default production branch
+		{"pr-1", "main", false},       // PR preview
+		{"feature/x", "main", false},  // feature branch
+		{"main", "trunk", false},      // pushed main to a trunk-production site
+	}
+	for _, c := range cases {
+		got := isProductionDeploy(c.branch, c.configured)
+		if got != c.want {
+			t.Errorf("isProductionDeploy(branch=%q, configured=%q) = %v, want %v",
+				c.branch, c.configured, got, c.want)
+		}
+	}
+}
+
+func TestHasReconcilableConfig(t *testing.T) {
+	empty := &config.ProjectConfig{}
+	if hasReconcilableConfig(empty) {
+		t.Error("empty config should not be reconcilable")
+	}
+	withDomain := &config.ProjectConfig{
+		Domains: []config.DomainConfig{{Hostname: "example.com"}},
+	}
+	if !hasReconcilableConfig(withDomain) {
+		t.Error("config with [[domains]] should be reconcilable")
+	}
+	withSite := &config.ProjectConfig{
+		Site: config.SiteConfig{Slug: "x", Name: "Display"},
+	}
+	if !hasReconcilableConfig(withSite) {
+		t.Error("config with [site] display name should be reconcilable")
+	}
+}
+
 func TestReconcileTrusts_AddsDeletes(t *testing.T) {
 	var (
 		mu      sync.Mutex
