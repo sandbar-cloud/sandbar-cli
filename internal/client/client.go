@@ -301,3 +301,26 @@ func (c *Client) UpdateDomain(slug, domainID string, req UpdateDomainRequest) (*
 	}
 	return &resp, nil
 }
+
+// --- OIDC Trusts ---
+
+func (c *Client) AddTrust(slug string, req AddTrustRequest) (*Trust, error) {
+	var resp Trust
+	if err := c.do(http.MethodPost, "/sites/"+slug+"/trusts", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) ListTrusts(slug string) ([]Trust, error) {
+	// Server returns a bare JSON array, not the {"items": [...]} envelope.
+	var resp []Trust
+	if err := c.do(http.MethodGet, "/sites/"+slug+"/trusts", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) DeleteTrust(slug, trustID string) error {
+	return c.do(http.MethodDelete, "/sites/"+slug+"/trusts/"+trustID, nil, nil)
+}

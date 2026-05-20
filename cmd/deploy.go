@@ -256,6 +256,9 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 	if cfg.Domains != nil {
 		reconcileDomains(c, slug, cfg.Domains)
 	}
+	if cfg.Trusts != nil {
+		reconcileTrusts(c, slug, cfg.Trusts)
+	}
 	if cfg.Preview.DefaultExpiry != "" {
 		reconcilePreviewExpiry(c, slug, cfg.Preview.DefaultExpiry)
 	}
@@ -336,6 +339,67 @@ func reconcileDomains(c *client.Client, slug string, desired []config.DomainConf
 		default:
 			fmt.Printf("  ~ domain %s: redirect changed %s → %s\n", host, a.RedirectTo, newRedirect)
 		}
+	}
+}
+
+// reconcileTrusts brings the server's OIDC trust list into sync with
+// [[trusts]] in .sandbar/config.toml. Authoritative: trusts present
+// on the server but absent from config are deleted. Skipped at the
+// call site when the block is nil (project hasn't adopted the
+// declarative shape).
+//
+// Footgun: the trust authenticating this very deploy can be the one
+// deleted. The reconcile already succeeded auth-wise, so the current
+// request finishes — but the next workflow run breaks. The CLI
+// surfaces the delete in its output so users see what changed.
+func reconcileTrusts(c *client.Client, slug string, desired []config.TrustConfig) {
+	remote, err := c.ListTrusts(slug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ! trust reconcile: list failed: %v\n", err)
+		return
+	}
+
+	want := map[config.TrustKey]config.TrustConfig{}
+	for _, t := range desired {
+		want[t.Key()] = t
+	}
+	have := map[config.TrustKey]client.Trust{}
+	for _, t := range remote {
+		have[config.TrustKey{
+			Provider:    t.Provider,
+			Repository:  t.Repository,
+			RefFilter:   t.RefFilter,
+			Environment: t.Environment,
+		}] = t
+	}
+
+	for key, t := range want {
+		if _, ok := have[key]; ok {
+			continue
+		}
+		if _, err := c.AddTrust(slug, client.AddTrustRequest{
+			Provider:    t.EffectiveProvider(),
+			Repository:  t.Repository,
+			RefFilter:   t.EffectiveRefFilter(),
+			Environment: t.EffectiveEnvironment(),
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "  ! trust reconcile: add %s (%s/%s) failed: %v\n",
+				t.Repository, t.EffectiveRefFilter(), t.EffectiveEnvironment(), err)
+			continue
+		}
+		fmt.Printf("  + trust added: %s (ref=%s env=%s)\n",
+			t.Repository, t.EffectiveRefFilter(), t.EffectiveEnvironment())
+	}
+
+	for key, t := range have {
+		if _, ok := want[key]; ok {
+			continue
+		}
+		if err := c.DeleteTrust(slug, t.ID); err != nil {
+			fmt.Fprintf(os.Stderr, "  ! trust reconcile: delete %s failed: %v\n", t.ID, err)
+			continue
+		}
+		fmt.Printf("  - trust removed: %s (ref=%s env=%s)\n", t.Repository, t.RefFilter, t.Environment)
 	}
 }
 

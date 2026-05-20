@@ -105,6 +105,26 @@ type Domain struct {
 	VerifiedAt         *time.Time `json:"verified_at,omitempty"`
 }
 
+// Trust is the OIDC deploy trust the server returns. Identity for
+// reconcile purposes is the (Provider, Repository, RefFilter,
+// Environment) tuple; ID is the server-side row identifier used for
+// DELETE.
+type Trust struct {
+	ID          string    `json:"id"`
+	Provider    string    `json:"provider"`
+	Repository  string    `json:"repository"`
+	RefFilter   string    `json:"ref_filter"`
+	Environment string    `json:"environment"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type AddTrustRequest struct {
+	Provider    string `json:"provider,omitempty"`
+	Repository  string `json:"repository"`
+	RefFilter   string `json:"ref_filter,omitempty"`
+	Environment string `json:"environment,omitempty"`
+}
+
 // AddDomainResponse matches the flat DomainResponse the API returns
 // from POST /sites/{slug}/domains. The server embeds the rendered DNS
 // instructions as a single string (TrustClaim formats them) rather
