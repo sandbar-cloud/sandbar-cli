@@ -68,13 +68,26 @@ func (cmd *LoginCmd) loginGitHubOIDC(globals *Globals) error {
 		return fmt.Errorf("received empty OIDC token. Check workflow permissions")
 	}
 
-	// Store as the session token — the API will validate it as a GitHub OIDC JWT
-	if err := config.WriteGlobalAuth(tokenResp.Value); err != nil {
+	exchangeID := config.ResolveGitHubActionsExchangeID()
+	if exchangeID == "" {
+		sp.Fail("Missing Microwave trust exchange")
+		return fmt.Errorf("SANDBAR_MICROWAVE_GITHUB_ACTIONS_EXCHANGE_ID is required for GitHub Actions authentication")
+	}
+	microwaveClient := client.NewMicrowaveClient(config.ResolveMicrowaveAuthURL())
+	redeemed, err := microwaveClient.RedeemTrustExchange(exchangeID, tokenResp.Value)
+	if err != nil {
+		sp.Fail("Failed to redeem GitHub OIDC token")
+		return err
+	}
+
+	// Store the Microwave-issued Sandbar CI JWT. The Sandbar API never sees
+	// the raw GitHub OIDC token.
+	if err := config.WriteGlobalAuth(redeemed.Token); err != nil {
 		sp.Fail("Failed to save token")
 		return err
 	}
 
-	sp.Stop("Authenticated via GitHub OIDC")
+	sp.Stop("Authenticated via Microwave GitHub trust exchange")
 	return nil
 }
 

@@ -199,12 +199,21 @@ type HeaderRule struct {
 
 // GlobalConfig represents ~/.config/sandbar/config.toml
 type GlobalConfig struct {
-	Auth   AuthConfig `toml:"auth"`
-	APIURL string     `toml:"api_url,omitempty"`
+	Auth      AuthConfig      `toml:"auth"`
+	APIURL    string          `toml:"api_url,omitempty"`
+	Microwave MicrowaveConfig `toml:"microwave,omitempty"`
 }
 
 type AuthConfig struct {
 	Token string `toml:"token"`
+}
+
+type MicrowaveConfig struct {
+	APIURL                     string `toml:"api_url,omitempty"`
+	AuthURL                    string `toml:"auth_url,omitempty"`
+	GitHubActionsExchangeID    string `toml:"github_actions_exchange_id,omitempty"`
+	GitHubActionsFederationID  string `toml:"github_actions_federation_id,omitempty"`
+	TerraformCloudFederationID string `toml:"terraform_cloud_federation_id,omitempty"`
 }
 
 // LoadGlobal reads ~/.config/sandbar/config.toml.
@@ -228,6 +237,33 @@ func ResolveAPIURL() string {
 		return cfg.APIURL
 	}
 	return ""
+}
+
+func ResolveMicrowaveAPIURL() string {
+	if u := os.Getenv("SANDBAR_MICROWAVE_API_URL"); u != "" {
+		return u
+	}
+	if cfg := LoadGlobal(); cfg.Microwave.APIURL != "" {
+		return cfg.Microwave.APIURL
+	}
+	return "https://api.microwave.sh"
+}
+
+func ResolveMicrowaveAuthURL() string {
+	if u := os.Getenv("SANDBAR_MICROWAVE_AUTH_URL"); u != "" {
+		return u
+	}
+	if cfg := LoadGlobal(); cfg.Microwave.AuthURL != "" {
+		return cfg.Microwave.AuthURL
+	}
+	return "https://auth.microwave.sh"
+}
+
+func ResolveGitHubActionsExchangeID() string {
+	if id := os.Getenv("SANDBAR_MICROWAVE_GITHUB_ACTIONS_EXCHANGE_ID"); id != "" {
+		return id
+	}
+	return LoadGlobal().Microwave.GitHubActionsExchangeID
 }
 
 // LoadProject reads .sandbar/config.toml from the given directory.
