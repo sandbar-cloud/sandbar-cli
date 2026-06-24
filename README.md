@@ -513,7 +513,7 @@ The CLI integrates with GitHub Actions via Microwave OIDC exchange. No Sandbar A
 ### Requirements
 
 - Add `permissions: id-token: write` to the job.
-- The Sandbar project must be configured to trust your repository (set up in the Sandbar console).
+- Add a `[[trusts]]` entry to `.sandbar/config.toml`; `sandbar deploy` reconciles it into a Microwave-backed Sandbar trust binding.
 
 ### Example workflow
 

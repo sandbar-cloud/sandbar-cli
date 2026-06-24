@@ -105,10 +105,10 @@ type Domain struct {
 	VerifiedAt         *time.Time `json:"verified_at,omitempty"`
 }
 
-// Trust is the OIDC deploy trust the server returns. Identity for
-// reconcile purposes is the (Provider, Repository, RefFilter,
-// Environment) tuple; ID is the server-side row identifier used for
-// DELETE.
+// Trust is the OIDC deploy trust the Sandbar API returns from Microwave-backed
+// trust federation bindings. Identity for reconcile purposes is the (Provider,
+// Repository, RefFilter, Environment) tuple; ID is the binding identifier used
+// for DELETE.
 type Trust struct {
 	ID          string    `json:"id"`
 	Provider    string    `json:"provider"`
@@ -119,10 +119,9 @@ type Trust struct {
 }
 
 // AddTrustRequest is the body sent to POST /sites/{slug}/trusts.
-// The server hardcodes provider="github" and rejects unknown fields
-// via its strict JSON schema validation, so the wire body never
-// includes a provider key. (When the server eventually supports
-// multiple providers, add the field back here in lockstep.)
+// The Sandbar API maps this to the sandbar_github_actions Microwave federation
+// key today, so the wire body does not include a provider key. If Sandbar adds
+// another deploy-trust federation, add the field back here in lockstep.
 type AddTrustRequest struct {
 	Repository  string `json:"repository"`
 	RefFilter   string `json:"ref_filter,omitempty"`

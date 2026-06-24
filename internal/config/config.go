@@ -24,11 +24,11 @@ type ProjectConfig struct {
 }
 
 // TrustConfig declares an OIDC deploy trust in .sandbar/config.toml.
-// Authoritative: `sandbar deploy` reconciles the server's trust list
-// to match this block. Trusts present on the server but absent here
-// are deleted — including the trust the current deploy used to
-// authenticate, so don't remove a trust from config until the
-// workflow using it stops running.
+// Authoritative: `sandbar deploy` reconciles the Microwave-backed Sandbar
+// trust bindings to match this block. Bindings present in Microwave but absent
+// here are deleted — including the binding the current deploy used to
+// authenticate, so don't remove a trust from config until the workflow using it
+// stops running.
 //
 // Identity is the (Provider, Repository, RefFilter, Environment)
 // tuple; matching is exact.
@@ -40,7 +40,7 @@ type TrustConfig struct {
 }
 
 // EffectiveProvider returns the trust's provider with the "github"
-// default applied — matches how the server normalises empty values.
+// default applied — matches how the Sandbar API normalises empty values.
 func (t *TrustConfig) EffectiveProvider() string {
 	if t.Provider == "" {
 		return "github"
@@ -65,7 +65,7 @@ func (t *TrustConfig) EffectiveEnvironment() string {
 }
 
 // Key returns the tuple identity for matching against the server's
-// trust list.
+// trust binding list.
 func (t *TrustConfig) Key() TrustKey {
 	return TrustKey{
 		Provider:    t.EffectiveProvider(),
@@ -76,7 +76,7 @@ func (t *TrustConfig) Key() TrustKey {
 }
 
 // TrustKey is the (provider, repo, ref, env) tuple used to match
-// config trust entries against server-side rows.
+// config trust entries against Microwave-backed Sandbar bindings.
 type TrustKey struct {
 	Provider    string
 	Repository  string
