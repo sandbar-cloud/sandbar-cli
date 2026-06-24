@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -41,7 +42,12 @@ func (cmd *LoginCmd) loginGitHubOIDC(globals *Globals) error {
 	if audience == "" {
 		audience = "https://api.sandbar.cloud"
 	}
-	req, err := http.NewRequest("GET", requestURL+"&audience="+audience, nil)
+	tokenURL, err := githubOIDCTokenURL(requestURL, audience)
+	if err != nil {
+		sp.Fail("Invalid GitHub OIDC request URL")
+		return err
+	}
+	req, err := http.NewRequest("GET", tokenURL, nil)
 	if err != nil {
 		sp.Fail("Failed to create request")
 		return err
@@ -89,6 +95,17 @@ func (cmd *LoginCmd) loginGitHubOIDC(globals *Globals) error {
 
 	sp.Stop("Authenticated via Microwave GitHub trust exchange")
 	return nil
+}
+
+func githubOIDCTokenURL(requestURL, audience string) (string, error) {
+	u, err := url.Parse(requestURL)
+	if err != nil {
+		return "", fmt.Errorf("parse GitHub OIDC request URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("audience", audience)
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }
 
 func (cmd *LoginCmd) loginDevice(globals *Globals) error {
