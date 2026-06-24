@@ -67,8 +67,8 @@ sandbar version
 
 Authenticate with Sandbar. Behavior depends on context:
 
-- **Local:** opens a browser for the device authorization flow, then polls for approval. The token is saved to `~/.config/sandbar/config.toml`.
-- **GitHub Actions:** automatically exchanges a GitHub OIDC token with the Sandbar API. No flags required; the command detects the `ACTIONS_ID_TOKEN_REQUEST_URL` environment variable.
+- **Local:** opens a browser for the Microwave-backed device authorization flow, then polls for approval. The token is saved to `~/.config/sandbar/config.toml`.
+- **GitHub Actions:** automatically exchanges a GitHub OIDC token with Microwave, then stores the Microwave-issued Sandbar CI token. The command detects the `ACTIONS_ID_TOKEN_REQUEST_URL` environment variable.
 
 ```sh
 sandbar login
@@ -352,7 +352,7 @@ sandbar domains delete example.com [flags]
 
 ### Local device flow
 
-Running `sandbar login` locally opens a browser to the Sandbar authorization page. The CLI polls until the request is approved, then saves the token to:
+Running `sandbar login` locally opens a browser to the Microwave-backed Sandbar authorization page. The CLI polls until the request is approved, then saves the token to:
 
 ```
 ~/.config/sandbar/config.toml
@@ -362,7 +362,7 @@ The token is written to `[auth] token` in that file.
 
 ### GitHub Actions OIDC (CI)
 
-When `ACTIONS_ID_TOKEN_REQUEST_URL` is set (standard in GitHub Actions runners), `sandbar login` skips the device flow and exchanges a GitHub OIDC JWT directly with the Sandbar API. No stored secrets are required beyond granting the `id-token: write` permission.
+When `ACTIONS_ID_TOKEN_REQUEST_URL` is set (standard in GitHub Actions runners), `sandbar login` skips the device flow and redeems the GitHub OIDC JWT through Microwave. No Sandbar API key is stored; the runner only needs `id-token: write` and the Sandbar GitHub Actions Trust Exchange ID.
 
 See the [GitHub Actions](#github-actions) section for a complete workflow example.
 
@@ -470,10 +470,16 @@ Managed by `sandbar login`. You can also edit it directly.
 
 ```toml
 [auth]
-token = "sbk_live_..."
+token = "eyJ..."
 
 # Optional: override the API base URL (for self-hosted or staging)
 api_url = "https://api.sandbar.cloud"
+
+[microwave]
+cli_exchange_id = "tex_..."
+github_actions_exchange_id = "tex_..."
+api_url = "https://api.microwave.sh"
+auth_url = "https://auth.microwave.sh"
 ```
 
 **Field reference:**
@@ -482,6 +488,10 @@ api_url = "https://api.sandbar.cloud"
 |-------|------|-------------|
 | `auth.token` | string | Session token |
 | `api_url` | string | API base URL override (default: `https://api.sandbar.cloud`) |
+| `microwave.cli_exchange_id` | string | Microwave Trust Exchange ID used for local CLI login |
+| `microwave.github_actions_exchange_id` | string | Microwave Trust Exchange ID used for GitHub Actions OIDC login |
+| `microwave.api_url` | string | Microwave API URL override |
+| `microwave.auth_url` | string | Microwave auth URL override |
 
 ### Environment variables
 
@@ -489,12 +499,16 @@ api_url = "https://api.sandbar.cloud"
 |----------|-------------|
 | `SANDBAR_TOKEN` | Auth token; takes priority over the stored token |
 | `SANDBAR_API_URL` | API base URL override; takes priority over `api_url` in config |
+| `SANDBAR_MICROWAVE_CLI_EXCHANGE_ID` | Microwave Trust Exchange ID for local device login |
+| `SANDBAR_MICROWAVE_GITHUB_ACTIONS_EXCHANGE_ID` | Microwave Trust Exchange ID for GitHub Actions OIDC login |
+| `SANDBAR_MICROWAVE_API_URL` | Microwave API URL override |
+| `SANDBAR_MICROWAVE_AUTH_URL` | Microwave auth URL override |
 
 ---
 
 ## GitHub Actions
 
-The CLI integrates with GitHub Actions via OIDC. No secrets need to be stored; the runner exchanges a short-lived JWT automatically.
+The CLI integrates with GitHub Actions via Microwave OIDC exchange. No Sandbar API keys need to be stored; the runner exchanges a short-lived GitHub OIDC JWT for a Microwave-issued Sandbar CI token.
 
 ### Requirements
 

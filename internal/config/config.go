@@ -209,11 +209,10 @@ type AuthConfig struct {
 }
 
 type MicrowaveConfig struct {
-	APIURL                     string `toml:"api_url,omitempty"`
-	AuthURL                    string `toml:"auth_url,omitempty"`
-	CLIExchangeID              string `toml:"cli_exchange_id,omitempty"`
-	GitHubActionsExchangeID    string `toml:"github_actions_exchange_id,omitempty"`
-	TerraformCloudFederationID string `toml:"terraform_cloud_federation_id,omitempty"`
+	APIURL                  string `toml:"api_url,omitempty"`
+	AuthURL                 string `toml:"auth_url,omitempty"`
+	CLIExchangeID           string `toml:"cli_exchange_id,omitempty"`
+	GitHubActionsExchangeID string `toml:"github_actions_exchange_id,omitempty"`
 }
 
 // LoadGlobal reads ~/.config/sandbar/config.toml.
