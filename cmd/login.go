@@ -92,11 +92,14 @@ func (cmd *LoginCmd) loginGitHubOIDC(globals *Globals) error {
 }
 
 func (cmd *LoginCmd) loginDevice(globals *Globals) error {
-	// Create an unauthenticated client for the device flow
-	c := client.NewFromEnv("", globals.Version)
+	exchangeID := config.ResolveCLIExchangeID()
+	if exchangeID == "" {
+		return fmt.Errorf("SANDBAR_MICROWAVE_CLI_EXCHANGE_ID is required for CLI login")
+	}
+	microwaveClient := client.NewMicrowaveClient(config.ResolveMicrowaveAPIURL())
 
 	sp := output.NewSpinner("Starting login...")
-	code, err := c.RequestDeviceCode()
+	code, err := microwaveClient.RequestDeviceCode(exchangeID)
 	if err != nil {
 		sp.Fail("Failed to start login")
 		return err
@@ -123,7 +126,7 @@ func (cmd *LoginCmd) loginDevice(globals *Globals) error {
 		case <-time.After(interval):
 		}
 
-		tokenResp, err := c.PollDeviceToken(code.DeviceCode)
+		tokenResp, err := microwaveClient.PollDeviceToken(code.DeviceCode)
 		if err != nil {
 			// 404 = device code deleted = user denied
 			sp.Fail("Login denied")

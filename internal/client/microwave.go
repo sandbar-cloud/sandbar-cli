@@ -17,16 +17,24 @@ type MicrowaveClient struct {
 	httpClient *http.Client
 }
 
-type MicrowaveRedeemResult struct {
-	Token     string    `json:"token"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Scopes    []string  `json:"scopes"`
-}
-
 type MicrowaveTokenExchangeResult struct {
 	Token     string
 	ExpiresIn int64
 	Scope     string
+}
+
+type MicrowaveDeviceCodeResponse struct {
+	DeviceCode   string `json:"device_code"`
+	UserCode     string `json:"user_code"`
+	AuthorizeURL string `json:"authorize_url"`
+	ExpiresIn    int    `json:"expires_in"`
+	Interval     int    `json:"interval"`
+}
+
+type MicrowaveDeviceTokenResponse struct {
+	Token     string `json:"token,omitempty"`
+	Status    string `json:"status"`
+	ExpiresIn int    `json:"expires_in,omitempty"`
 }
 
 func NewMicrowaveClient(baseURL string) *MicrowaveClient {
@@ -41,35 +49,68 @@ func NewMicrowaveClient(baseURL string) *MicrowaveClient {
 	}
 }
 
-func (c *MicrowaveClient) RedeemTrustFederation(federationID, token string) (*MicrowaveRedeemResult, error) {
-	if strings.TrimSpace(federationID) == "" {
-		return nil, fmt.Errorf("microwave federation id is required")
+func (c *MicrowaveClient) RequestDeviceCode(trustExchangeID string) (*MicrowaveDeviceCodeResponse, error) {
+	if strings.TrimSpace(trustExchangeID) == "" {
+		return nil, fmt.Errorf("microwave trust exchange id is required")
 	}
-	body, err := json.Marshal(map[string]string{"token": token})
+	body, err := json.Marshal(map[string]string{"trust_exchange_id": trustExchangeID})
 	if err != nil {
-		return nil, fmt.Errorf("marshal microwave redeem request: %w", err)
+		return nil, fmt.Errorf("marshal microwave device request: %w", err)
 	}
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/trust-federations/"+federationID+"/redeem", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/auth/device", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create microwave redeem request: %w", err)
+		return nil, fmt.Errorf("create microwave device request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("redeem microwave federation: %w", err)
+		return nil, fmt.Errorf("request microwave device code: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("redeem microwave federation: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("request microwave device code: HTTP %d", resp.StatusCode)
 	}
 
-	var out MicrowaveRedeemResult
+	var out MicrowaveDeviceCodeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("decode microwave redeem response: %w", err)
+		return nil, fmt.Errorf("decode microwave device response: %w", err)
 	}
-	if out.Token == "" {
-		return nil, fmt.Errorf("microwave redeem response did not include token")
+	if out.DeviceCode == "" || out.AuthorizeURL == "" {
+		return nil, fmt.Errorf("microwave device response did not include device_code and authorize_url")
+	}
+	return &out, nil
+}
+
+func (c *MicrowaveClient) PollDeviceToken(deviceCode string) (*MicrowaveDeviceTokenResponse, error) {
+	if strings.TrimSpace(deviceCode) == "" {
+		return nil, fmt.Errorf("microwave device code is required")
+	}
+	body, err := json.Marshal(map[string]string{"device_code": deviceCode})
+	if err != nil {
+		return nil, fmt.Errorf("marshal microwave device poll request: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/auth/device/token", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create microwave device poll request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("poll microwave device token: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("poll microwave device token: HTTP %d", resp.StatusCode)
+	}
+
+	var out MicrowaveDeviceTokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode microwave device poll response: %w", err)
+	}
+	if out.Status == "" {
+		return nil, fmt.Errorf("microwave device poll response did not include status")
 	}
 	return &out, nil
 }

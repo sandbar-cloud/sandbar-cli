@@ -159,26 +159,6 @@ func (c *Client) doPublic(method, path string, body, result any) error {
 	return nil
 }
 
-// --- Auth ---
-
-// RequestDeviceCode starts the device authorization flow.
-func (c *Client) RequestDeviceCode() (*DeviceCodeResponse, error) {
-	var result DeviceCodeResponse
-	if err := c.doPublic("POST", "/auth/device", nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// PollDeviceToken polls for the device authorization token.
-func (c *Client) PollDeviceToken(deviceCode string) (*DeviceTokenResponse, error) {
-	var result DeviceTokenResponse
-	if err := c.doPublic("POST", "/auth/device/token", map[string]string{"device_code": deviceCode}, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
 // --- Sites ---
 
 func (c *Client) CreateSite(req CreateSiteRequest) (*Site, error) {

@@ -165,18 +165,3 @@ type SearchResponse[T any] struct {
 type ListResponse[T any] struct {
 	Items []T `json:"items"`
 }
-
-// --- Device auth types ---
-
-type DeviceCodeResponse struct {
-	DeviceCode   string `json:"device_code"`
-	AuthorizeURL string `json:"authorize_url"`
-	ExpiresIn    int    `json:"expires_in"`
-	Interval     int    `json:"interval"`
-}
-
-type DeviceTokenResponse struct {
-	Token     string `json:"token,omitempty"`
-	Status    string `json:"status"`
-	ExpiresIn int    `json:"expires_in,omitempty"`
-}

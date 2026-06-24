@@ -211,8 +211,8 @@ type AuthConfig struct {
 type MicrowaveConfig struct {
 	APIURL                     string `toml:"api_url,omitempty"`
 	AuthURL                    string `toml:"auth_url,omitempty"`
+	CLIExchangeID              string `toml:"cli_exchange_id,omitempty"`
 	GitHubActionsExchangeID    string `toml:"github_actions_exchange_id,omitempty"`
-	GitHubActionsFederationID  string `toml:"github_actions_federation_id,omitempty"`
 	TerraformCloudFederationID string `toml:"terraform_cloud_federation_id,omitempty"`
 }
 
@@ -257,6 +257,13 @@ func ResolveMicrowaveAuthURL() string {
 		return cfg.Microwave.AuthURL
 	}
 	return "https://auth.microwave.sh"
+}
+
+func ResolveCLIExchangeID() string {
+	if id := os.Getenv("SANDBAR_MICROWAVE_CLI_EXCHANGE_ID"); id != "" {
+		return id
+	}
+	return LoadGlobal().Microwave.CLIExchangeID
 }
 
 func ResolveGitHubActionsExchangeID() string {
