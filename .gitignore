@@ -12,3 +12,6 @@ dist/
 
 # Test
 coverage.out
+
+# Worktrees
+.worktrees/
