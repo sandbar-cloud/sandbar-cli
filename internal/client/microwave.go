@@ -4,12 +4,35 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 )
 
 const defaultMicrowaveAPIURL = "https://api.microwave.sh"
+
+// microwaveOAuthError turns a non-2xx device-endpoint response into an error that
+// surfaces the server's RFC 6749 error + error_description (e.g. "expired_token:
+// device code expired") instead of a bare HTTP status. Falls back to the status
+// and trimmed body when the envelope can't be parsed.
+func microwaveOAuthError(op string, resp *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var oe struct {
+		Error       string `json:"error"`
+		Description string `json:"error_description"`
+	}
+	if json.Unmarshal(body, &oe) == nil && oe.Error != "" {
+		if oe.Description != "" {
+			return fmt.Errorf("%s: %s: %s", op, oe.Error, oe.Description)
+		}
+		return fmt.Errorf("%s: %s", op, oe.Error)
+	}
+	if trimmed := strings.TrimSpace(string(body)); trimmed != "" {
+		return fmt.Errorf("%s: HTTP %d: %s", op, resp.StatusCode, trimmed)
+	}
+	return fmt.Errorf("%s: HTTP %d", op, resp.StatusCode)
+}
 
 type MicrowaveClient struct {
 	baseURL    string
@@ -62,7 +85,7 @@ func (c *MicrowaveClient) RequestDeviceCode(trustExchangeID string) (*MicrowaveD
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("request microwave device code: HTTP %d", resp.StatusCode)
+		return nil, microwaveOAuthError("request microwave device code", resp)
 	}
 
 	var out MicrowaveDeviceCodeResponse
@@ -95,7 +118,7 @@ func (c *MicrowaveClient) PollDeviceToken(deviceCode string) (*MicrowaveDeviceTo
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("poll microwave device token: HTTP %d", resp.StatusCode)
+		return nil, microwaveOAuthError("poll microwave device token", resp)
 	}
 
 	var out MicrowaveDeviceTokenResponse
