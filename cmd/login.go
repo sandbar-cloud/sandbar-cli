@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/microwave-sh/microwave-go/auth"
-	"github.com/sandbar-cloud/sandbar-cli/internal/client"
 	"github.com/sandbar-cloud/sandbar-cli/internal/config"
 	"github.com/sandbar-cloud/sandbar-cli/internal/output"
 )
@@ -44,12 +43,12 @@ type ghActionsAuthConfig struct {
 	Audience      string `json:"audience"`
 }
 
-// cliAuthConfig is the operator device-login target: the Microwave API base the
-// device flow runs against and the trust exchange it redeems. The operator
-// configures none of this.
+// cliAuthConfig is the operator login target: the Microwave authorization-server
+// metadata document the shared SDK login core discovers, and the client id (the
+// trust exchange) it authenticates against. The operator configures none of this.
 type cliAuthConfig struct {
-	DeviceEndpoint  string `json:"device_endpoint"`
-	TrustExchangeID string `json:"trust_exchange_id"`
+	AuthMetadataURL string `json:"auth_metadata_url"`
+	ClientID        string `json:"client_id"`
 }
 
 // loginGitHubOIDC redeems a GitHub Actions OIDC token for a Sandbar CI session
@@ -166,7 +165,7 @@ func githubOIDCTokenURL(requestURL, audience string) (string, error) {
 }
 
 func (cmd *LoginCmd) loginDevice(globals *Globals) error {
-	httpClient := &http.Client{Timeout: 15 * time.Second}
+	httpClient := &http.Client{Timeout: 90 * time.Second}
 
 	sp := output.NewSpinner("Discovering login config...")
 	ac, err := fetchAuthConfig(httpClient)
@@ -175,71 +174,33 @@ func (cmd *LoginCmd) loginDevice(globals *Globals) error {
 		return err
 	}
 	cli := ac.CLI
-	if cli.DeviceEndpoint == "" || cli.TrustExchangeID == "" {
+	if cli.AuthMetadataURL == "" || cli.ClientID == "" {
 		sp.Fail("Auth config is incomplete")
-		return fmt.Errorf("auth config is missing the cli device-login target")
+		return fmt.Errorf("auth config is missing the cli login target")
 	}
-	microwaveClient := client.NewMicrowaveClient(cli.DeviceEndpoint)
+	// Hand off to the shared Microwave SDK login core: it discovers the
+	// authorization server, runs the loopback authorization-code + PKCE flow
+	// (brokered to the tenant IdP), and falls back to the device grant when no
+	// browser is available. It owns its own progress output, so stop our spinner
+	// first to avoid two writers fighting the terminal.
+	sp.Stop("Found login config")
 
-	sp.UpdateMsg("Starting login...")
-	code, err := microwaveClient.RequestDeviceCode(cli.TrustExchangeID)
+	creds, err := auth.Login(context.Background(), auth.LoginConfig{
+		MetadataURL: cli.AuthMetadataURL,
+		ClientID:    cli.ClientID,
+		Mode:        auth.LoginAuto,
+		HTTPClient:  httpClient,
+		Output:      os.Stderr,
+	})
 	if err != nil {
-		sp.Fail("Failed to start login")
 		return err
 	}
-	sp.Stop("Opening browser...")
 
-	fmt.Printf("\n  If the browser didn't open, visit:\n  %s\n\n", output.Bold.Render(code.AuthorizeURL))
-
-	// Try to open browser (ignore error — user can visit URL manually)
-	openBrowser(code.AuthorizeURL) //nolint:errcheck
-
-	// Poll for approval with interrupt support
-	sp = output.NewSpinner("Waiting for authorization...")
-	deadline := time.Now().Add(time.Duration(code.ExpiresIn) * time.Second)
-	interval := time.Duration(code.Interval) * time.Second
-	if interval < 2*time.Second {
-		interval = 5 * time.Second
+	if err := config.WriteGlobalAuth(creds.AccessToken); err != nil {
+		return fmt.Errorf("save credentials: %w", err)
 	}
-
-	for time.Now().Before(deadline) {
-		select {
-		case <-sp.CancelledC:
-			return fmt.Errorf("login cancelled")
-		case <-time.After(interval):
-		}
-
-		tokenResp, err := microwaveClient.PollDeviceToken(code.DeviceCode)
-		if err != nil {
-			// 404 = device code deleted = user denied
-			sp.Fail("Login denied")
-			return fmt.Errorf("authorization denied or expired")
-		}
-
-		switch tokenResp.Status {
-		case "approved":
-			// Save token to global config
-			if err := config.WriteGlobalAuth(tokenResp.Token); err != nil {
-				sp.Fail("Failed to save credentials")
-				return err
-			}
-			sp.Stop("Logged in")
-			fmt.Printf("\n  Token saved to %s\n\n", output.Dim.Render(filepath.Join(config.GlobalConfigDir(), "config.toml")))
-			return nil
-
-		case "expired":
-			sp.Fail("Login expired")
-			return fmt.Errorf("authorization expired. Run `sandbar login` again")
-
-		case "pending":
-			continue
-
-		default:
-			sp.Fail("Login failed")
-			return fmt.Errorf("unexpected status: %s", tokenResp.Status)
-		}
-	}
-
-	sp.Fail("Login timed out")
-	return fmt.Errorf("authorization timed out after %d seconds", code.ExpiresIn)
+	fmt.Printf("\n  %s Logged in. Token saved to %s\n\n",
+		output.Green.Render("✓"),
+		output.Dim.Render(filepath.Join(config.GlobalConfigDir(), "config.toml")))
+	return nil
 }

@@ -40,8 +40,8 @@ func TestFetchAuthConfigParsesBothBlocks(t *testing.T) {
 				"audience": "https://api.sandbar.cloud"
 			},
 			"cli": {
-				"device_endpoint": "https://api.microwave.sh",
-				"trust_exchange_id": "tex_cli"
+				"auth_metadata_url": "https://auth.microwave.sh/.well-known/oauth-authorization-server",
+				"client_id": "tex_cli"
 			}
 		}`))
 	}))
@@ -60,10 +60,10 @@ func TestFetchAuthConfigParsesBothBlocks(t *testing.T) {
 	if ac.GitHubActions.TokenEndpoint != "https://auth.microwave.sh/token" {
 		t.Errorf("ci token_endpoint = %q", ac.GitHubActions.TokenEndpoint)
 	}
-	if ac.CLI.DeviceEndpoint != "https://api.microwave.sh" {
-		t.Errorf("cli device_endpoint = %q", ac.CLI.DeviceEndpoint)
+	if ac.CLI.AuthMetadataURL != "https://auth.microwave.sh/.well-known/oauth-authorization-server" {
+		t.Errorf("cli auth_metadata_url = %q", ac.CLI.AuthMetadataURL)
 	}
-	if ac.CLI.TrustExchangeID != "tex_cli" {
-		t.Errorf("cli trust_exchange_id = %q", ac.CLI.TrustExchangeID)
+	if ac.CLI.ClientID != "tex_cli" {
+		t.Errorf("cli client_id = %q", ac.CLI.ClientID)
 	}
 }
