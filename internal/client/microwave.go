@@ -115,30 +115,35 @@ func (c *MicrowaveClient) PollDeviceToken(deviceCode string) (*MicrowaveDeviceTo
 	return &out, nil
 }
 
-func (c *MicrowaveClient) RedeemTrustExchange(exchangeID, token string) (*MicrowaveTokenExchangeResult, error) {
-	if strings.TrimSpace(exchangeID) == "" {
-		return nil, fmt.Errorf("microwave trust exchange id is required")
+// RedeemTokenExchange runs the RFC 8693 token-exchange at an absolute Microwave
+// token endpoint, swapping an OIDC subject token for a Microwave-issued JWT. The
+// tokenEndpoint and resource indicator come from Sandbar's /auth/config discovery
+// (resource selects the CI trust federation), so the CLI is not pinned to a
+// specific federation — recreating it is a server-config change, not a release.
+func RedeemTokenExchange(tokenEndpoint, resource, subjectToken string) (*MicrowaveTokenExchangeResult, error) {
+	if strings.TrimSpace(tokenEndpoint) == "" || strings.TrimSpace(resource) == "" {
+		return nil, fmt.Errorf("microwave token endpoint and resource are required")
 	}
 	form := url.Values{}
 	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
 	form.Set("subject_token_type", "urn:ietf:params:oauth:token-type:jwt")
 	form.Set("requested_token_type", "urn:ietf:params:oauth:token-type:jwt")
-	form.Set("subject_token", token)
-	form.Set("resource", c.baseURL+"/trust-exchanges/"+exchangeID)
+	form.Set("subject_token", subjectToken)
+	form.Set("resource", resource)
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/token", strings.NewReader(form.Encode()))
+	req, err := http.NewRequest(http.MethodPost, tokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("create microwave token exchange request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("redeem microwave trust exchange: %w", err)
+		return nil, fmt.Errorf("redeem microwave token exchange: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("redeem microwave trust exchange: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("redeem microwave token exchange: HTTP %d", resp.StatusCode)
 	}
 
 	var wire struct {

@@ -209,10 +209,9 @@ type AuthConfig struct {
 }
 
 type MicrowaveConfig struct {
-	APIURL                  string `toml:"api_url,omitempty"`
-	AuthURL                 string `toml:"auth_url,omitempty"`
-	CLIExchangeID           string `toml:"cli_exchange_id,omitempty"`
-	GitHubActionsExchangeID string `toml:"github_actions_exchange_id,omitempty"`
+	APIURL        string `toml:"api_url,omitempty"`
+	AuthURL       string `toml:"auth_url,omitempty"`
+	CLIExchangeID string `toml:"cli_exchange_id,omitempty"`
 }
 
 // LoadGlobal reads ~/.config/sandbar/config.toml.
@@ -263,13 +262,6 @@ func ResolveCLIExchangeID() string {
 		return id
 	}
 	return LoadGlobal().Microwave.CLIExchangeID
-}
-
-func ResolveGitHubActionsExchangeID() string {
-	if id := os.Getenv("SANDBAR_MICROWAVE_GITHUB_ACTIONS_EXCHANGE_ID"); id != "" {
-		return id
-	}
-	return LoadGlobal().Microwave.GitHubActionsExchangeID
 }
 
 // LoadProject reads .sandbar/config.toml from the given directory.

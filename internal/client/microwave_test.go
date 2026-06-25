@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestRedeemMicrowaveTrustExchange(t *testing.T) {
+func TestRedeemTokenExchange(t *testing.T) {
 	var sawPath string
 	var sawForm map[string]string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -28,10 +28,10 @@ func TestRedeemMicrowaveTrustExchange(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewMicrowaveClient(server.URL)
-	out, err := client.RedeemTrustExchange("tex_github", "github-oidc-jwt")
+	resource := server.URL + "/trust-federations/tf_ci"
+	out, err := RedeemTokenExchange(server.URL+"/token", resource, "github-oidc-jwt")
 	if err != nil {
-		t.Fatalf("RedeemTrustExchange: %v", err)
+		t.Fatalf("RedeemTokenExchange: %v", err)
 	}
 
 	if sawPath != "/token" {
@@ -40,8 +40,11 @@ func TestRedeemMicrowaveTrustExchange(t *testing.T) {
 	if sawForm["subject_token"] != "github-oidc-jwt" {
 		t.Fatalf("subject_token = %q", sawForm["subject_token"])
 	}
-	if sawForm["resource"] != server.URL+"/trust-exchanges/tex_github" {
+	if sawForm["resource"] != resource {
 		t.Fatalf("resource = %q", sawForm["resource"])
+	}
+	if sawForm["grant_type"] != "urn:ietf:params:oauth:grant-type:token-exchange" {
+		t.Fatalf("grant_type = %q", sawForm["grant_type"])
 	}
 	if out.Token != "sandbar-ci-jwt" {
 		t.Fatalf("token = %q", out.Token)

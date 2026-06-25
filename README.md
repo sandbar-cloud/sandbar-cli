@@ -362,7 +362,7 @@ The token is written to `[auth] token` in that file.
 
 ### GitHub Actions OIDC (CI)
 
-When `ACTIONS_ID_TOKEN_REQUEST_URL` is set (standard in GitHub Actions runners), `sandbar login` skips the device flow and redeems the GitHub OIDC JWT through Microwave. No Sandbar API key is stored; the runner only needs `id-token: write` and the Sandbar GitHub Actions Trust Exchange ID.
+When `ACTIONS_ID_TOKEN_REQUEST_URL` is set (standard in GitHub Actions runners), `sandbar login` skips the device flow and redeems the GitHub OIDC JWT through Microwave's standard RFC 8693 token-exchange. The redeem target is discovered automatically from Sandbar's public `/auth/config`, so the runner needs only `id-token: write` — no exchange/federation id to configure. No Sandbar API key is stored; the minted CI session JWT is.
 
 See the [GitHub Actions](#github-actions) section for a complete workflow example.
 
@@ -477,10 +477,11 @@ api_url = "https://api.sandbar.cloud"
 
 [microwave]
 cli_exchange_id = "tex_..."
-github_actions_exchange_id = "tex_..."
 api_url = "https://api.microwave.sh"
 auth_url = "https://auth.microwave.sh"
 ```
+
+GitHub Actions CI auth needs no config here — the redeem target is discovered from Sandbar's `/auth/config`.
 
 **Field reference:**
 
@@ -489,7 +490,6 @@ auth_url = "https://auth.microwave.sh"
 | `auth.token` | string | Session token |
 | `api_url` | string | API base URL override (default: `https://api.sandbar.cloud`) |
 | `microwave.cli_exchange_id` | string | Microwave Trust Exchange ID used for local CLI login |
-| `microwave.github_actions_exchange_id` | string | Microwave Trust Exchange ID used for GitHub Actions OIDC login |
 | `microwave.api_url` | string | Microwave API URL override |
 | `microwave.auth_url` | string | Microwave auth URL override |
 
@@ -500,7 +500,6 @@ auth_url = "https://auth.microwave.sh"
 | `SANDBAR_TOKEN` | Auth token; takes priority over the stored token |
 | `SANDBAR_API_URL` | API base URL override; takes priority over `api_url` in config |
 | `SANDBAR_MICROWAVE_CLI_EXCHANGE_ID` | Microwave Trust Exchange ID for local device login |
-| `SANDBAR_MICROWAVE_GITHUB_ACTIONS_EXCHANGE_ID` | Microwave Trust Exchange ID for GitHub Actions OIDC login |
 | `SANDBAR_MICROWAVE_API_URL` | Microwave API URL override |
 | `SANDBAR_MICROWAVE_AUTH_URL` | Microwave auth URL override |
 
