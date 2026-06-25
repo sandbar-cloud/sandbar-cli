@@ -9,7 +9,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/mattn/go-isatty v0.0.22
-	github.com/microwave-sh/microwave-go v0.8.1-0.20260625210252-cb1f0351c82a
+	github.com/microwave-sh/microwave-go v0.9.0
 )
 
 require (
