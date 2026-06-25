@@ -77,14 +77,14 @@ func (cmd *LoginCmd) loginGitHubOIDC(globals *Globals) error {
 		return fmt.Errorf("auth config is missing the github_actions redeem target")
 	}
 
-	sp = output.NewSpinner("Requesting GitHub OIDC token...")
+	sp.UpdateMsg("Requesting GitHub OIDC token...")
 	oidcToken, err := requestGitHubOIDCToken(httpClient, requestURL, requestToken, ci.Audience)
 	if err != nil {
 		sp.Fail("Failed to request OIDC token")
 		return err
 	}
 
-	sp = output.NewSpinner("Exchanging for a Sandbar CI session...")
+	sp.UpdateMsg("Exchanging for a Sandbar CI session...")
 	redeemed, err := auth.RedeemTokenExchange(context.Background(), httpClient, ci.TokenEndpoint, ci.Resource, oidcToken)
 	if err != nil {
 		sp.Fail("Token exchange failed")
@@ -181,7 +181,7 @@ func (cmd *LoginCmd) loginDevice(globals *Globals) error {
 	}
 	microwaveClient := client.NewMicrowaveClient(cli.DeviceEndpoint)
 
-	sp = output.NewSpinner("Starting login...")
+	sp.UpdateMsg("Starting login...")
 	code, err := microwaveClient.RequestDeviceCode(cli.TrustExchangeID)
 	if err != nil {
 		sp.Fail("Failed to start login")
