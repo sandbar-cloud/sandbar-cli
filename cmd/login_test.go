@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func TestGitHubOIDCTokenURLEncodesAudience(t *testing.T) {
@@ -23,5 +26,44 @@ func TestGitHubOIDCTokenURLEncodesAudience(t *testing.T) {
 	}
 	if u.RawQuery == "request=abc&audience=https://api.sandbar.cloud" {
 		t.Fatalf("audience was not URL-encoded: %q", u.RawQuery)
+	}
+}
+
+func TestFetchAuthConfigParsesBothBlocks(t *testing.T) {
+	var sawPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.Path
+		_, _ = w.Write([]byte(`{
+			"github_actions": {
+				"token_endpoint": "https://auth.microwave.sh/token",
+				"resource": "https://auth.microwave.sh/trust-federations/tf_ci",
+				"audience": "https://api.sandbar.cloud"
+			},
+			"cli": {
+				"device_endpoint": "https://api.microwave.sh",
+				"trust_exchange_id": "tex_cli"
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	// fetchAuthConfig reads the Sandbar API base from SANDBAR_API_URL.
+	t.Setenv("SANDBAR_API_URL", srv.URL)
+
+	ac, err := fetchAuthConfig(&http.Client{Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("fetchAuthConfig: %v", err)
+	}
+	if sawPath != "/auth/config" {
+		t.Fatalf("path = %q", sawPath)
+	}
+	if ac.GitHubActions.TokenEndpoint != "https://auth.microwave.sh/token" {
+		t.Errorf("ci token_endpoint = %q", ac.GitHubActions.TokenEndpoint)
+	}
+	if ac.CLI.DeviceEndpoint != "https://api.microwave.sh" {
+		t.Errorf("cli device_endpoint = %q", ac.CLI.DeviceEndpoint)
+	}
+	if ac.CLI.TrustExchangeID != "tex_cli" {
+		t.Errorf("cli trust_exchange_id = %q", ac.CLI.TrustExchangeID)
 	}
 }
