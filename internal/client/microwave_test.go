@@ -4,8 +4,31 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+// TestMicrowaveDeviceErrorSurfacing verifies a device-endpoint RFC 6749 error
+// reaches the caller with its code + description, not a bare HTTP status.
+func TestMicrowaveDeviceErrorSurfacing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error":             "expired_token",
+			"error_description": "device code expired",
+		})
+	}))
+	defer server.Close()
+
+	_, err := NewMicrowaveClient(server.URL).PollDeviceToken("device_123")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), "expired_token") || !strings.Contains(err.Error(), "device code expired") {
+		t.Fatalf("error did not surface the OAuth code+description: %v", err)
+	}
+}
 
 func TestMicrowaveDeviceFlow(t *testing.T) {
 	var requested bool
