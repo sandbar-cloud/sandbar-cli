@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sandbar-cloud/sandbar-cli/internal/client"
@@ -24,52 +26,50 @@ func (cmd *LoginCmd) Run(globals *Globals) error {
 	return cmd.loginDevice(globals)
 }
 
+// ciAuthConfig is the github_actions block of Sandbar's public /auth/config
+// discovery document: where + how to redeem a GitHub Actions OIDC token.
+type ciAuthConfig struct {
+	TokenEndpoint string `json:"token_endpoint"`
+	Resource      string `json:"resource"`
+	Audience      string `json:"audience"`
+}
+
+// loginGitHubOIDC redeems a GitHub Actions OIDC token for a Sandbar CI session
+// JWT: discover the redeem target from Sandbar, mint a GitHub OIDC token for that
+// audience, then exchange it via Microwave's standard RFC 8693 token endpoint.
+// The minted session JWT — not the raw OIDC token — is what Sandbar verifies.
 func (cmd *LoginCmd) loginGitHubOIDC(globals *Globals) error {
-	// Request OIDC token from GitHub Actions runtime
 	requestURL := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL")
 	requestToken := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
-
 	if requestURL == "" || requestToken == "" {
 		return fmt.Errorf("GitHub Actions OIDC not available. Ensure `permissions: id-token: write` is set in your workflow")
 	}
 
-	sp := output.NewSpinner("Requesting GitHub OIDC token...")
+	httpClient := &http.Client{Timeout: 15 * time.Second}
 
-	// Fetch OIDC token from GitHub's token endpoint
-	httpClient := &http.Client{Timeout: 10 * time.Second}
-	audience := config.ResolveAPIURL()
-	if audience == "" {
-		audience = "https://api.sandbar.cloud"
-	}
-	req, err := http.NewRequest("GET", requestURL+"&audience="+audience, nil)
+	sp := output.NewSpinner("Discovering CI auth config...")
+	ci, err := fetchCIAuthConfig(httpClient)
 	if err != nil {
-		sp.Fail("Failed to create request")
+		sp.Fail("Failed to fetch auth config")
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+requestToken)
 
-	resp, err := httpClient.Do(req)
+	sp = output.NewSpinner("Requesting GitHub OIDC token...")
+	oidcToken, err := requestGitHubOIDCToken(httpClient, requestURL, requestToken, ci.Audience)
 	if err != nil {
 		sp.Fail("Failed to request OIDC token")
-		return fmt.Errorf("failed to request OIDC token: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var tokenResp struct {
-		Value string `json:"value"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-		sp.Fail("Failed to decode OIDC token")
-		return fmt.Errorf("failed to decode OIDC token response: %w", err)
+		return err
 	}
 
-	if tokenResp.Value == "" {
-		sp.Fail("Empty OIDC token")
-		return fmt.Errorf("received empty OIDC token. Check workflow permissions")
+	sp = output.NewSpinner("Exchanging for a Sandbar CI session...")
+	redeemed, err := client.RedeemTokenExchange(ci.TokenEndpoint, ci.Resource, oidcToken)
+	if err != nil {
+		sp.Fail("Token exchange failed")
+		return err
 	}
 
-	// Store as the session token — the API will validate it as a GitHub OIDC JWT
-	if err := config.WriteGlobalAuth(tokenResp.Value); err != nil {
+	// Store the Microwave-issued Sandbar CI JWT. Sandbar never sees the raw OIDC.
+	if err := config.WriteGlobalAuth(redeemed.Token); err != nil {
 		sp.Fail("Failed to save token")
 		return err
 	}
@@ -78,12 +78,81 @@ func (cmd *LoginCmd) loginGitHubOIDC(globals *Globals) error {
 	return nil
 }
 
+// fetchCIAuthConfig reads Sandbar's public /auth/config for the github_actions
+// redeem target. The CLI holds no Sandbar credential at this point.
+func fetchCIAuthConfig(c *http.Client) (ciAuthConfig, error) {
+	apiURL := config.ResolveAPIURL()
+	if apiURL == "" {
+		apiURL = "https://api.sandbar.cloud"
+	}
+	resp, err := c.Get(strings.TrimRight(apiURL, "/") + "/auth/config")
+	if err != nil {
+		return ciAuthConfig{}, fmt.Errorf("fetch auth config: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ciAuthConfig{}, fmt.Errorf("auth config unavailable: HTTP %d", resp.StatusCode)
+	}
+	var doc struct {
+		GitHubActions ciAuthConfig `json:"github_actions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+		return ciAuthConfig{}, fmt.Errorf("decode auth config: %w", err)
+	}
+	if doc.GitHubActions.TokenEndpoint == "" || doc.GitHubActions.Resource == "" {
+		return ciAuthConfig{}, fmt.Errorf("auth config is missing the github_actions redeem target")
+	}
+	return doc.GitHubActions, nil
+}
+
+// requestGitHubOIDCToken mints a GitHub Actions OIDC token for the given audience.
+func requestGitHubOIDCToken(c *http.Client, requestURL, requestToken, audience string) (string, error) {
+	tokenURL, err := githubOIDCTokenURL(requestURL, audience)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequest(http.MethodGet, tokenURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+requestToken)
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request OIDC token: %w", err)
+	}
+	defer resp.Body.Close()
+	var tokenResp struct {
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("decode OIDC token: %w", err)
+	}
+	if tokenResp.Value == "" {
+		return "", fmt.Errorf("received empty OIDC token; check workflow permissions")
+	}
+	return tokenResp.Value, nil
+}
+
+func githubOIDCTokenURL(requestURL, audience string) (string, error) {
+	u, err := url.Parse(requestURL)
+	if err != nil {
+		return "", fmt.Errorf("parse GitHub OIDC request URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("audience", audience)
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
 func (cmd *LoginCmd) loginDevice(globals *Globals) error {
-	// Create an unauthenticated client for the device flow
-	c := client.NewFromEnv("", globals.Version)
+	exchangeID := config.ResolveCLIExchangeID()
+	if exchangeID == "" {
+		return fmt.Errorf("SANDBAR_MICROWAVE_CLI_EXCHANGE_ID is required for CLI login")
+	}
+	microwaveClient := client.NewMicrowaveClient(config.ResolveMicrowaveAPIURL())
 
 	sp := output.NewSpinner("Starting login...")
-	code, err := c.RequestDeviceCode()
+	code, err := microwaveClient.RequestDeviceCode(exchangeID)
 	if err != nil {
 		sp.Fail("Failed to start login")
 		return err
@@ -110,7 +179,7 @@ func (cmd *LoginCmd) loginDevice(globals *Globals) error {
 		case <-time.After(interval):
 		}
 
-		tokenResp, err := c.PollDeviceToken(code.DeviceCode)
+		tokenResp, err := microwaveClient.PollDeviceToken(code.DeviceCode)
 		if err != nil {
 			// 404 = device code deleted = user denied
 			sp.Fail("Login denied")

@@ -24,11 +24,11 @@ type ProjectConfig struct {
 }
 
 // TrustConfig declares an OIDC deploy trust in .sandbar/config.toml.
-// Authoritative: `sandbar deploy` reconciles the server's trust list
-// to match this block. Trusts present on the server but absent here
-// are deleted — including the trust the current deploy used to
-// authenticate, so don't remove a trust from config until the
-// workflow using it stops running.
+// Authoritative: `sandbar deploy` reconciles the Microwave-backed Sandbar
+// trust bindings to match this block. Bindings present in Microwave but absent
+// here are deleted — including the binding the current deploy used to
+// authenticate, so don't remove a trust from config until the workflow using it
+// stops running.
 //
 // Identity is the (Provider, Repository, RefFilter, Environment)
 // tuple; matching is exact.
@@ -40,7 +40,7 @@ type TrustConfig struct {
 }
 
 // EffectiveProvider returns the trust's provider with the "github"
-// default applied — matches how the server normalises empty values.
+// default applied — matches how the Sandbar API normalises empty values.
 func (t *TrustConfig) EffectiveProvider() string {
 	if t.Provider == "" {
 		return "github"
@@ -65,7 +65,7 @@ func (t *TrustConfig) EffectiveEnvironment() string {
 }
 
 // Key returns the tuple identity for matching against the server's
-// trust list.
+// trust binding list.
 func (t *TrustConfig) Key() TrustKey {
 	return TrustKey{
 		Provider:    t.EffectiveProvider(),
@@ -76,7 +76,7 @@ func (t *TrustConfig) Key() TrustKey {
 }
 
 // TrustKey is the (provider, repo, ref, env) tuple used to match
-// config trust entries against server-side rows.
+// config trust entries against Microwave-backed Sandbar bindings.
 type TrustKey struct {
 	Provider    string
 	Repository  string
@@ -199,12 +199,19 @@ type HeaderRule struct {
 
 // GlobalConfig represents ~/.config/sandbar/config.toml
 type GlobalConfig struct {
-	Auth   AuthConfig `toml:"auth"`
-	APIURL string     `toml:"api_url,omitempty"`
+	Auth      AuthConfig      `toml:"auth"`
+	APIURL    string          `toml:"api_url,omitempty"`
+	Microwave MicrowaveConfig `toml:"microwave,omitempty"`
 }
 
 type AuthConfig struct {
 	Token string `toml:"token"`
+}
+
+type MicrowaveConfig struct {
+	APIURL        string `toml:"api_url,omitempty"`
+	AuthURL       string `toml:"auth_url,omitempty"`
+	CLIExchangeID string `toml:"cli_exchange_id,omitempty"`
 }
 
 // LoadGlobal reads ~/.config/sandbar/config.toml.
@@ -228,6 +235,33 @@ func ResolveAPIURL() string {
 		return cfg.APIURL
 	}
 	return ""
+}
+
+func ResolveMicrowaveAPIURL() string {
+	if u := os.Getenv("SANDBAR_MICROWAVE_API_URL"); u != "" {
+		return u
+	}
+	if cfg := LoadGlobal(); cfg.Microwave.APIURL != "" {
+		return cfg.Microwave.APIURL
+	}
+	return "https://api.microwave.sh"
+}
+
+func ResolveMicrowaveAuthURL() string {
+	if u := os.Getenv("SANDBAR_MICROWAVE_AUTH_URL"); u != "" {
+		return u
+	}
+	if cfg := LoadGlobal(); cfg.Microwave.AuthURL != "" {
+		return cfg.Microwave.AuthURL
+	}
+	return "https://auth.microwave.sh"
+}
+
+func ResolveCLIExchangeID() string {
+	if id := os.Getenv("SANDBAR_MICROWAVE_CLI_EXCHANGE_ID"); id != "" {
+		return id
+	}
+	return LoadGlobal().Microwave.CLIExchangeID
 }
 
 // LoadProject reads .sandbar/config.toml from the given directory.

@@ -252,8 +252,8 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 	// Reconcile site-level state — domains, trusts, name, production
 	// branch, preview expiry — against the config. Only on production
 	// deploys, never on previews: a PR-branch deploy could otherwise
-	// push unmerged config to the server, or delete domains/trusts
-	// that the PR branch hasn't picked up yet.
+	// push unmerged config to the server, or delete domains/trusts that
+	// the PR branch hasn't picked up yet.
 	if isProductionDeploy(branch, cfg.Site.ProductionBranch) {
 		reconcileSite(c, slug, cfg.Site)
 		if cfg.Domains != nil {
@@ -370,6 +370,7 @@ func reconcileDomains(c *client.Client, slug string, desired []config.DomainConf
 //   - The deploy has no branch set (un-branched default), or
 //   - The branch matches the configured production branch (or "main"
 //     as the server-side default when config doesn't override it).
+//
 // Everything else is a preview and must not push config-driven state
 // to the server.
 func isProductionDeploy(branch, configuredProduction string) bool {
