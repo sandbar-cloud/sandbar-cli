@@ -26,12 +26,28 @@ func (cmd *LoginCmd) Run(globals *Globals) error {
 	return cmd.loginDevice(globals)
 }
 
-// ciAuthConfig is the github_actions block of Sandbar's public /auth/config
-// discovery document: where + how to redeem a GitHub Actions OIDC token.
-type ciAuthConfig struct {
+// authConfig mirrors Sandbar's public /auth/config discovery document. The CLI
+// reads it — holding no Sandbar credential — to learn how to authenticate
+// without any locally-configured Microwave detail.
+type authConfig struct {
+	GitHubActions ghActionsAuthConfig `json:"github_actions"`
+	CLI           cliAuthConfig       `json:"cli"`
+}
+
+// ghActionsAuthConfig is the CI redeem target: where + how to exchange a GitHub
+// Actions OIDC token for a Sandbar CI session JWT.
+type ghActionsAuthConfig struct {
 	TokenEndpoint string `json:"token_endpoint"`
 	Resource      string `json:"resource"`
 	Audience      string `json:"audience"`
+}
+
+// cliAuthConfig is the operator device-login target: the Microwave API base the
+// device flow runs against and the trust exchange it redeems. The operator
+// configures none of this.
+type cliAuthConfig struct {
+	DeviceEndpoint  string `json:"device_endpoint"`
+	TrustExchangeID string `json:"trust_exchange_id"`
 }
 
 // loginGitHubOIDC redeems a GitHub Actions OIDC token for a Sandbar CI session
@@ -48,10 +64,15 @@ func (cmd *LoginCmd) loginGitHubOIDC(globals *Globals) error {
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 
 	sp := output.NewSpinner("Discovering CI auth config...")
-	ci, err := fetchCIAuthConfig(httpClient)
+	ac, err := fetchAuthConfig(httpClient)
 	if err != nil {
 		sp.Fail("Failed to fetch auth config")
 		return err
+	}
+	ci := ac.GitHubActions
+	if ci.TokenEndpoint == "" || ci.Resource == "" {
+		sp.Fail("Auth config is incomplete")
+		return fmt.Errorf("auth config is missing the github_actions redeem target")
 	}
 
 	sp = output.NewSpinner("Requesting GitHub OIDC token...")
@@ -78,31 +99,26 @@ func (cmd *LoginCmd) loginGitHubOIDC(globals *Globals) error {
 	return nil
 }
 
-// fetchCIAuthConfig reads Sandbar's public /auth/config for the github_actions
-// redeem target. The CLI holds no Sandbar credential at this point.
-func fetchCIAuthConfig(c *http.Client) (ciAuthConfig, error) {
+// fetchAuthConfig reads Sandbar's public /auth/config discovery document. The
+// CLI holds no Sandbar credential at this point.
+func fetchAuthConfig(c *http.Client) (authConfig, error) {
 	apiURL := config.ResolveAPIURL()
 	if apiURL == "" {
 		apiURL = "https://api.sandbar.cloud"
 	}
 	resp, err := c.Get(strings.TrimRight(apiURL, "/") + "/auth/config")
 	if err != nil {
-		return ciAuthConfig{}, fmt.Errorf("fetch auth config: %w", err)
+		return authConfig{}, fmt.Errorf("fetch auth config: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return ciAuthConfig{}, fmt.Errorf("auth config unavailable: HTTP %d", resp.StatusCode)
+		return authConfig{}, fmt.Errorf("auth config unavailable: HTTP %d", resp.StatusCode)
 	}
-	var doc struct {
-		GitHubActions ciAuthConfig `json:"github_actions"`
-	}
+	var doc authConfig
 	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
-		return ciAuthConfig{}, fmt.Errorf("decode auth config: %w", err)
+		return authConfig{}, fmt.Errorf("decode auth config: %w", err)
 	}
-	if doc.GitHubActions.TokenEndpoint == "" || doc.GitHubActions.Resource == "" {
-		return ciAuthConfig{}, fmt.Errorf("auth config is missing the github_actions redeem target")
-	}
-	return doc.GitHubActions, nil
+	return doc, nil
 }
 
 // requestGitHubOIDCToken mints a GitHub Actions OIDC token for the given audience.
@@ -145,14 +161,23 @@ func githubOIDCTokenURL(requestURL, audience string) (string, error) {
 }
 
 func (cmd *LoginCmd) loginDevice(globals *Globals) error {
-	exchangeID := config.ResolveCLIExchangeID()
-	if exchangeID == "" {
-		return fmt.Errorf("SANDBAR_MICROWAVE_CLI_EXCHANGE_ID is required for CLI login")
-	}
-	microwaveClient := client.NewMicrowaveClient(config.ResolveMicrowaveAPIURL())
+	httpClient := &http.Client{Timeout: 15 * time.Second}
 
-	sp := output.NewSpinner("Starting login...")
-	code, err := microwaveClient.RequestDeviceCode(exchangeID)
+	sp := output.NewSpinner("Discovering login config...")
+	ac, err := fetchAuthConfig(httpClient)
+	if err != nil {
+		sp.Fail("Failed to fetch auth config")
+		return err
+	}
+	cli := ac.CLI
+	if cli.DeviceEndpoint == "" || cli.TrustExchangeID == "" {
+		sp.Fail("Auth config is incomplete")
+		return fmt.Errorf("auth config is missing the cli device-login target")
+	}
+	microwaveClient := client.NewMicrowaveClient(cli.DeviceEndpoint)
+
+	sp = output.NewSpinner("Starting login...")
+	code, err := microwaveClient.RequestDeviceCode(cli.TrustExchangeID)
 	if err != nil {
 		sp.Fail("Failed to start login")
 		return err

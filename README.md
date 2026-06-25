@@ -474,14 +474,10 @@ token = "eyJ..."
 
 # Optional: override the API base URL (for self-hosted or staging)
 api_url = "https://api.sandbar.cloud"
-
-[microwave]
-cli_exchange_id = "tex_..."
-api_url = "https://api.microwave.sh"
-auth_url = "https://auth.microwave.sh"
 ```
 
-GitHub Actions CI auth needs no config here — the redeem target is discovered from Sandbar's `/auth/config`.
+Login needs no Microwave config. Both `sandbar login` (operator device flow) and
+GitHub Actions CI discover their auth targets from Sandbar's `/auth/config`.
 
 **Field reference:**
 
@@ -489,9 +485,6 @@ GitHub Actions CI auth needs no config here — the redeem target is discovered 
 |-------|------|-------------|
 | `auth.token` | string | Session token |
 | `api_url` | string | API base URL override (default: `https://api.sandbar.cloud`) |
-| `microwave.cli_exchange_id` | string | Microwave Trust Exchange ID used for local CLI login |
-| `microwave.api_url` | string | Microwave API URL override |
-| `microwave.auth_url` | string | Microwave auth URL override |
 
 ### Environment variables
 
@@ -499,9 +492,6 @@ GitHub Actions CI auth needs no config here — the redeem target is discovered 
 |----------|-------------|
 | `SANDBAR_TOKEN` | Auth token; takes priority over the stored token |
 | `SANDBAR_API_URL` | API base URL override; takes priority over `api_url` in config |
-| `SANDBAR_MICROWAVE_CLI_EXCHANGE_ID` | Microwave Trust Exchange ID for local device login |
-| `SANDBAR_MICROWAVE_API_URL` | Microwave API URL override |
-| `SANDBAR_MICROWAVE_AUTH_URL` | Microwave auth URL override |
 
 ---
 
