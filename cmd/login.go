@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microwave-sh/microwave-go/auth"
 	"github.com/sandbar-cloud/sandbar-cli/internal/client"
 	"github.com/sandbar-cloud/sandbar-cli/internal/config"
 	"github.com/sandbar-cloud/sandbar-cli/internal/output"
@@ -83,14 +85,17 @@ func (cmd *LoginCmd) loginGitHubOIDC(globals *Globals) error {
 	}
 
 	sp = output.NewSpinner("Exchanging for a Sandbar CI session...")
-	redeemed, err := client.RedeemTokenExchange(ci.TokenEndpoint, ci.Resource, oidcToken)
+	redeemed, err := auth.RedeemTokenExchange(context.Background(), httpClient, ci.TokenEndpoint, ci.Resource, oidcToken)
 	if err != nil {
 		sp.Fail("Token exchange failed")
-		return err
+		// The SDK returns a typed *auth.OAuthError carrying the server's error +
+		// error_description, so this surfaces e.g. "invalid_grant: policy denied:
+		// assertion.repository did not match" rather than a bare "HTTP 400".
+		return fmt.Errorf("exchange GitHub OIDC token for a Sandbar CI session: %w", err)
 	}
 
 	// Store the Microwave-issued Sandbar CI JWT. Sandbar never sees the raw OIDC.
-	if err := config.WriteGlobalAuth(redeemed.Token); err != nil {
+	if err := config.WriteGlobalAuth(redeemed.AccessToken); err != nil {
 		sp.Fail("Failed to save token")
 		return err
 	}

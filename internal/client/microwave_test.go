@@ -7,50 +7,6 @@ import (
 	"testing"
 )
 
-func TestRedeemTokenExchange(t *testing.T) {
-	var sawPath string
-	var sawForm map[string]string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sawPath = r.URL.Path
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("parse form: %v", err)
-		}
-		sawForm = map[string]string{}
-		for k := range r.PostForm {
-			sawForm[k] = r.PostForm.Get(k)
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token":      "sandbar-ci-jwt",
-			"issued_token_type": "urn:ietf:params:oauth:token-type:jwt",
-			"token_type":        "Bearer",
-			"expires_in":        900,
-		})
-	}))
-	defer server.Close()
-
-	resource := server.URL + "/trust-federations/tf_ci"
-	out, err := RedeemTokenExchange(server.URL+"/token", resource, "github-oidc-jwt")
-	if err != nil {
-		t.Fatalf("RedeemTokenExchange: %v", err)
-	}
-
-	if sawPath != "/token" {
-		t.Fatalf("path = %q", sawPath)
-	}
-	if sawForm["subject_token"] != "github-oidc-jwt" {
-		t.Fatalf("subject_token = %q", sawForm["subject_token"])
-	}
-	if sawForm["resource"] != resource {
-		t.Fatalf("resource = %q", sawForm["resource"])
-	}
-	if sawForm["grant_type"] != "urn:ietf:params:oauth:grant-type:token-exchange" {
-		t.Fatalf("grant_type = %q", sawForm["grant_type"])
-	}
-	if out.Token != "sandbar-ci-jwt" {
-		t.Fatalf("token = %q", out.Token)
-	}
-}
-
 func TestMicrowaveDeviceFlow(t *testing.T) {
 	var requested bool
 	var polled bool
