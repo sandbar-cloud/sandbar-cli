@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/microwave-sh/microwave-go/auth"
+	"github.com/sandbar-cloud/sandbar-cli/internal/client"
 	"github.com/sandbar-cloud/sandbar-cli/internal/config"
 	"github.com/sandbar-cloud/sandbar-cli/internal/output"
 )
@@ -32,7 +33,7 @@ func (cmd *LoginCmd) Run(globals *Globals) error {
 // without any locally-configured Microwave detail.
 type authConfig struct {
 	GitHubActions ghActionsAuthConfig `json:"github_actions"`
-	CLI           cliAuthConfig       `json:"cli"`
+	Device        deviceAuthConfig    `json:"device"`
 }
 
 // ghActionsAuthConfig is the CI redeem target: where + how to exchange a GitHub
@@ -43,12 +44,13 @@ type ghActionsAuthConfig struct {
 	Audience      string `json:"audience"`
 }
 
-// cliAuthConfig is the operator login target: the Microwave authorization-server
-// metadata document the shared SDK login core discovers, and the client id (the
-// trust exchange) it authenticates against. The operator configures none of this.
-type cliAuthConfig struct {
-	AuthMetadataURL string `json:"auth_metadata_url"`
-	ClientID        string `json:"client_id"`
+// deviceAuthConfig is the interactive login target: Microwave's device-flow
+// request + token endpoints and the Sandbar CLI trust exchange Microwave mints
+// the session through. The operator configures none of this.
+type deviceAuthConfig struct {
+	RequestURL string `json:"request_url"`
+	TokenURL   string `json:"token_url"`
+	ExchangeID string `json:"exchange_id"`
 }
 
 // loginGitHubOIDC redeems a GitHub Actions OIDC token for a Sandbar CI session
@@ -164,8 +166,13 @@ func githubOIDCTokenURL(requestURL, audience string) (string, error) {
 	return u.String(), nil
 }
 
+// loginDevice runs Microwave's device-approval flow for interactive login. The
+// CLI learns Microwave's device endpoints + the Sandbar CLI trust exchange from
+// Sandbar's /auth/config, starts a device authorization on Microwave, shows the
+// operator a short code to enter in the Sandbar console, then polls Microwave
+// until the operator approves it there and Microwave mints a session token.
 func (cmd *LoginCmd) loginDevice(globals *Globals) error {
-	httpClient := &http.Client{Timeout: 90 * time.Second}
+	httpClient := &http.Client{Timeout: 30 * time.Second}
 
 	sp := output.NewSpinner("Discovering login config...")
 	ac, err := fetchAuthConfig(httpClient)
@@ -173,34 +180,93 @@ func (cmd *LoginCmd) loginDevice(globals *Globals) error {
 		sp.Fail("Failed to fetch auth config")
 		return err
 	}
-	cli := ac.CLI
-	if cli.AuthMetadataURL == "" || cli.ClientID == "" {
+	dev := ac.Device
+	if dev.RequestURL == "" || dev.TokenURL == "" || dev.ExchangeID == "" {
 		sp.Fail("Auth config is incomplete")
-		return fmt.Errorf("auth config is missing the cli login target")
+		return fmt.Errorf("auth config is missing the device login target")
 	}
-	// Hand off to the shared Microwave SDK login core: it discovers the
-	// authorization server, runs the loopback authorization-code + PKCE flow
-	// (brokered to the tenant IdP), and falls back to the device grant when no
-	// browser is available. It owns its own progress output, so stop our spinner
-	// first to avoid two writers fighting the terminal.
-	sp.Stop("Found login config")
 
-	creds, err := auth.Login(context.Background(), auth.LoginConfig{
-		MetadataURL: cli.AuthMetadataURL,
-		ClientID:    cli.ClientID,
-		Mode:        auth.LoginAuto,
-		HTTPClient:  httpClient,
-		Output:      os.Stderr,
-	})
+	sp.UpdateMsg("Requesting device authorization...")
+	da, err := client.StartDeviceAuth(httpClient, dev.RequestURL, dev.ExchangeID)
+	if err != nil {
+		sp.Fail("Failed to start device authorization")
+		return err
+	}
+	sp.Stop("Device authorization started")
+
+	// Show the operator where to go and the code to enter. Never print or embed
+	// the device_code — that is the polling secret and stays in the CLI. The URL
+	// we render (and optionally open) is the static console page, with no code.
+	fmt.Fprintf(os.Stderr, "\n  To finish signing in, open %s\n  and enter the code: %s\n\n",
+		output.Bold.Render(da.VerificationURI),
+		output.Bold.Render(da.UserCode))
+
+	// Best-effort: open the verification page. A failure here is fine — the
+	// operator can open the URL manually. The device_code is never in this URL.
+	_ = openBrowser(da.VerificationURI)
+
+	token, err := cmd.pollDeviceApproval(httpClient, dev.TokenURL, da)
 	if err != nil {
 		return err
 	}
 
-	if err := config.WriteGlobalAuth(creds.AccessToken); err != nil {
+	if err := config.WriteGlobalAuth(token); err != nil {
 		return fmt.Errorf("save credentials: %w", err)
 	}
-	fmt.Printf("\n  %s Logged in. Token saved to %s\n\n",
+	fmt.Fprintf(os.Stderr, "\n  %s Logged in. Token saved to %s\n\n",
 		output.Green.Render("✓"),
 		output.Dim.Render(filepath.Join(config.GlobalConfigDir(), "config.toml")))
 	return nil
+}
+
+// pollDeviceApproval polls Microwave for the operator's approval at the
+// server-supplied interval until the device is approved (returns the token),
+// expires/is denied, or the overall deadline passes.
+func (cmd *LoginCmd) pollDeviceApproval(httpClient *http.Client, tokenURL string, da *client.DeviceAuthResponse) (string, error) {
+	interval := time.Duration(da.Interval) * time.Second
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	expiresIn := time.Duration(da.ExpiresIn) * time.Second
+	if expiresIn <= 0 {
+		expiresIn = 5 * time.Minute
+	}
+	deadline := time.Now().Add(expiresIn)
+
+	sp := output.NewSpinner("Waiting for approval in the console...")
+	for {
+		if time.Now().After(deadline) {
+			sp.Fail("Device authorization expired")
+			return "", client.ErrDeviceExpired
+		}
+
+		time.Sleep(interval)
+
+		res, err := client.PollDeviceToken(httpClient, tokenURL, da.DeviceCode)
+		if err != nil {
+			sp.Fail("Failed to check approval status")
+			return "", err
+		}
+
+		switch res.Status {
+		case "approved":
+			if res.Token == "" {
+				sp.Fail("Approval returned no token")
+				return "", fmt.Errorf("device approved but no token was returned")
+			}
+			sp.Stop("Approved")
+			return res.Token, nil
+		case "expired":
+			sp.Fail("Device authorization expired")
+			return "", client.ErrDeviceExpired
+		case "denied":
+			sp.Fail("Device authorization denied")
+			return "", client.ErrDeviceDenied
+		case "pending":
+			// keep polling
+		default:
+			sp.Fail("Unexpected approval status")
+			return "", fmt.Errorf("unexpected device status %q", res.Status)
+		}
+	}
 }
