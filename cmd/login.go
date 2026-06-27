@@ -9,10 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/microwave-sh/microwave-go/auth"
-	"github.com/sandbar-cloud/sandbar-cli/internal/client"
 	"github.com/sandbar-cloud/sandbar-cli/internal/config"
 	"github.com/sandbar-cloud/sandbar-cli/internal/output"
 )
@@ -185,32 +185,37 @@ func (cmd *LoginCmd) loginDevice(globals *Globals) error {
 		sp.Fail("Auth config is incomplete")
 		return fmt.Errorf("auth config is missing the device login target")
 	}
+	sp.Stop("Login config ready")
 
-	sp.UpdateMsg("Requesting device authorization...")
-	da, err := client.StartDeviceAuth(httpClient, dev.RequestURL, dev.ExchangeID)
+	// Bridge Ctrl+C to the login: while a spinner holds the terminal in raw mode
+	// the interrupt never reaches a signal handler, so cancel this context off
+	// the spinner instead.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pr := &loginProgress{cancel: cancel}
+
+	// Drive Microwave's device-approval flow through the shared SDK, targeting
+	// Sandbar's CLI trust exchange. The SDK owns the request → show code → poll
+	// loop (the device_code never leaves it; only the static verification URL +
+	// short user code reach the operator) and emits the phase events the spinner
+	// renders. DeviceApprovalURL is the Microwave API base the auth-config's
+	// request_url is rooted at.
+	creds, err := auth.Login(ctx, auth.LoginConfig{
+		Mode:              auth.LoginDeviceApproval,
+		DeviceApprovalURL: strings.TrimSuffix(dev.RequestURL, "/auth/device"),
+		TrustExchangeID:   dev.ExchangeID,
+		HTTPClient:        httpClient,
+		Output:            os.Stderr,
+		Progress:          pr,
+	})
 	if err != nil {
-		sp.Fail("Failed to start device authorization")
+		if pr.Cancelled() {
+			return fmt.Errorf("login cancelled")
+		}
 		return err
 	}
-	sp.Stop("Device authorization started")
 
-	// Show the operator where to go and the code to enter. Never print or embed
-	// the device_code — that is the polling secret and stays in the CLI. The URL
-	// we render (and optionally open) is the static console page, with no code.
-	fmt.Fprintf(os.Stderr, "\n  To finish signing in, open %s\n  and enter the code: %s\n\n",
-		output.Bold.Render(da.VerificationURI),
-		output.Bold.Render(da.UserCode))
-
-	// Best-effort: open the verification page. A failure here is fine — the
-	// operator can open the URL manually. The device_code is never in this URL.
-	_ = openBrowser(da.VerificationURI)
-
-	token, err := cmd.pollDeviceApproval(httpClient, dev.TokenURL, da)
-	if err != nil {
-		return err
-	}
-
-	if err := config.WriteGlobalAuth(token); err != nil {
+	if err := config.WriteGlobalAuth(creds.AccessToken); err != nil {
 		return fmt.Errorf("save credentials: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "\n  %s Logged in. Token saved to %s\n\n",
@@ -219,54 +224,54 @@ func (cmd *LoginCmd) loginDevice(globals *Globals) error {
 	return nil
 }
 
-// pollDeviceApproval polls Microwave for the operator's approval at the
-// server-supplied interval until the device is approved (returns the token),
-// expires/is denied, or the overall deadline passes.
-func (cmd *LoginCmd) pollDeviceApproval(httpClient *http.Client, tokenURL string, da *client.DeviceAuthResponse) (string, error) {
-	interval := time.Duration(da.Interval) * time.Second
-	if interval <= 0 {
-		interval = 5 * time.Second
-	}
-	expiresIn := time.Duration(da.ExpiresIn) * time.Second
-	if expiresIn <= 0 {
-		expiresIn = 5 * time.Minute
-	}
-	deadline := time.Now().Add(expiresIn)
+// loginProgress renders auth.ProgressReporter phase events with the CLI spinner,
+// so the SDK-driven device-approval flow shows the same animated steps the rest
+// of `sandbar login` does. The SDK pairs each Begin with exactly one Succeed or
+// Fail, so at most one spinner is live at a time. A Ctrl+C on the active spinner
+// cancels the login context (Bubbletea swallows the interrupt in raw mode).
+type loginProgress struct {
+	cancel    context.CancelFunc
+	sp        *output.Spinner
+	watchDone chan struct{}
+	cancelled atomic.Bool
+}
 
-	sp := output.NewSpinner("Waiting for approval in the console...")
-	for {
-		if time.Now().After(deadline) {
-			sp.Fail("Device authorization expired")
-			return "", client.ErrDeviceExpired
-		}
-
-		time.Sleep(interval)
-
-		res, err := client.PollDeviceToken(httpClient, tokenURL, da.DeviceCode)
-		if err != nil {
-			sp.Fail("Failed to check approval status")
-			return "", err
-		}
-
-		switch res.Status {
-		case "approved":
-			if res.Token == "" {
-				sp.Fail("Approval returned no token")
-				return "", fmt.Errorf("device approved but no token was returned")
+func (p *loginProgress) Begin(message string) {
+	p.sp = output.NewSpinner(message)
+	p.watchDone = make(chan struct{})
+	go func(sp *output.Spinner, done chan struct{}) {
+		select {
+		case <-sp.CancelledC:
+			p.cancelled.Store(true)
+			if p.cancel != nil {
+				p.cancel()
 			}
-			sp.Stop("Approved")
-			return res.Token, nil
-		case "expired":
-			sp.Fail("Device authorization expired")
-			return "", client.ErrDeviceExpired
-		case "denied":
-			sp.Fail("Device authorization denied")
-			return "", client.ErrDeviceDenied
-		case "pending":
-			// keep polling
-		default:
-			sp.Fail("Unexpected approval status")
-			return "", fmt.Errorf("unexpected device status %q", res.Status)
+		case <-done:
 		}
+	}(p.sp, p.watchDone)
+}
+
+func (p *loginProgress) Succeed(message string) { p.finish(false, message) }
+func (p *loginProgress) Fail(message string)    { p.finish(true, message) }
+
+func (p *loginProgress) finish(failed bool, message string) {
+	if p.sp == nil {
+		return
+	}
+	sp := p.sp
+	p.sp = nil
+	close(p.watchDone)
+	// On Ctrl+C the spinner already rendered its own "Cancelled" line and exited;
+	// don't send to a finished program.
+	if p.cancelled.Load() {
+		return
+	}
+	if failed {
+		sp.Fail(message)
+	} else {
+		sp.Stop(message)
 	}
 }
+
+// Cancelled reports whether the operator interrupted the login with Ctrl+C.
+func (p *loginProgress) Cancelled() bool { return p.cancelled.Load() }
