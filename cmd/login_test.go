@@ -130,19 +130,17 @@ func TestLoginDeviceFlow(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("device token method = %q", r.Method)
 		}
-		body, _ := io.ReadAll(r.Body)
-		var req struct {
-			DeviceCode string `json:"device_code"`
-		}
-		_ = json.Unmarshal(body, &req)
-		sawDeviceCode = req.DeviceCode
+		// RFC 8628 §3.4 device-grant poll: form-encoded grant_type + device_code.
+		_ = r.ParseForm()
+		sawDeviceCode = r.PostForm.Get("device_code")
 		tokenPollCount++
 		// First poll pending, second approved — proves the loop polls.
 		if tokenPollCount < 2 {
-			_, _ = w.Write([]byte(`{"status": "pending"}`))
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error": "authorization_pending"}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"status": "approved", "token": "` + wantToken + `"}`))
+		_, _ = w.Write([]byte(`{"access_token": "` + wantToken + `", "token_type": "Bearer"}`))
 	})
 	mw := httptest.NewServer(mwMux)
 	defer mw.Close()
