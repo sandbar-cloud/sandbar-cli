@@ -52,11 +52,11 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 		return fmt.Errorf("no site name in .sandbar/config.toml. Run `sandbar init`")
 	}
 
-	// Ensure site exists. Probe with GET first — sites:read is in every
-	// permission set (including the OIDC trust used by sandbar-action).
-	// Only fall through to POST /sites if the site doesn't exist, which
-	// is the local-dev "first deploy" case where the user has a Clerk
-	// JWT with sites:write.
+	// Ensure site exists. Probe with GET first — sites:read is broadly
+	// granted. Only fall through to POST /sites if the site doesn't
+	// exist; creating one needs sites:write, which not every token
+	// carries (CI tokens never do, and an operator token only does if
+	// their role grants it).
 	sp := output.NewSpinner("Connecting to site...")
 	if _, err := c.GetSite(slug); err != nil {
 		apiErr, ok := err.(*client.APIError)
@@ -64,14 +64,20 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 			sp.Fail("Failed to look up site")
 			return err
 		}
-		// 404 — try to create.
+		// 404 — try to create. A 403 here means this token lacks
+		// sites:write, not specifically that we're in CI.
 		if _, createErr := c.CreateSite(client.CreateSiteRequest{Name: slug, Slug: slug}); createErr != nil {
 			cErr, cOK := createErr.(*client.APIError)
 			if cOK && cErr.StatusCode == 403 {
-				sp.Fail("Site does not exist and CI lacks permission to create it")
+				sp.Fail("Cannot create site: token lacks sites:write")
+				if runningInCI() {
+					return fmt.Errorf(
+						"site %q doesn't exist and this CI token can't create sites (needs sites:write). "+
+							"Have an operator with sites:write create it once (`sandbar deploy` locally), then re-run CI.", slug)
+				}
 				return fmt.Errorf(
-					"site %q doesn't exist yet. Run `sandbar deploy` once locally to create it, "+
-						"then re-run this CI deploy.", slug)
+					"site %q doesn't exist and your token lacks the sites:write scope to create it. "+
+						"Your operator role must grant sites:write — fix that, then `sandbar login` again.", slug)
 			}
 			if !cOK || cErr.StatusCode != 409 {
 				sp.Fail("Failed to create site")
@@ -410,6 +416,12 @@ func isProductionDeploy(branch, configuredProduction string) bool {
 		prod = "main"
 	}
 	return branch == prod
+}
+
+// runningInCI reports whether we're in a CI runner. Used only to tailor
+// the "can't create site" guidance — not for auth decisions.
+func runningInCI() bool {
+	return os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("CI") != ""
 }
 
 // reconcileTrusts brings the server's OIDC trust list into sync with
