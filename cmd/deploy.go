@@ -255,15 +255,21 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 	// push unmerged config to the server, or delete domains/trusts that
 	// the PR branch hasn't picked up yet.
 	if isProductionDeploy(branch, cfg.Site.ProductionBranch) {
-		reconcileSite(c, slug, cfg.Site)
+		reports := []reconcileReport{reconcileSite(c, slug, cfg.Site)}
 		if cfg.Domains != nil {
-			reconcileDomains(c, slug, cfg.Domains)
+			reports = append(reports, reconcileDomains(c, slug, cfg.Domains))
 		}
 		if cfg.Trusts != nil {
-			reconcileTrusts(c, slug, cfg.Trusts)
+			reports = append(reports, reconcileTrusts(c, slug, cfg.Trusts))
 		}
 		if cfg.Preview.DefaultExpiry != "" {
-			reconcilePreviewExpiry(c, slug, cfg.Preview.DefaultExpiry)
+			reports = append(reports, reconcilePreviewExpiry(c, slug, cfg.Preview.DefaultExpiry))
+		}
+		// Quiet on a clean no-op; otherwise each note on its own line.
+		for _, rep := range reports {
+			for _, n := range rep.notes {
+				fmt.Fprintf(os.Stderr, "  %s\n", n)
+			}
 		}
 	}
 
@@ -287,22 +293,43 @@ func (cmd *DeployCmd) RunWith(c *client.Client, workDir, buildDir string, cfg *c
 // orphans. Drift in `redirect_to` on an existing domain is warned
 // about but not corrected — the server has no update-redirect-to
 // endpoint yet, so the workaround is delete + re-add.
-func reconcileDomains(c *client.Client, slug string, desired []config.DomainConfig) {
+// reconcileReport is the outcome of one reconcile step: human-readable
+// notes (each already marked — "! " warning, "+ " add, "- " remove,
+// "~ " change) and whether the step ran without a server/permission
+// error. Reconcilers return this instead of printing directly, so the
+// caller renders after any live spinner has released the output stream
+// (printing mid-spinner corrupts the spinner's cursor tracking).
+type reconcileReport struct {
+	notes []string
+	ok    bool
+}
+
+func (r *reconcileReport) note(format string, a ...any) {
+	r.notes = append(r.notes, fmt.Sprintf(format, a...))
+}
+
+func (r *reconcileReport) fail(format string, a ...any) {
+	r.note(format, a...)
+	r.ok = false
+}
+
+func reconcileDomains(c *client.Client, slug string, desired []config.DomainConfig) reconcileReport {
+	r := reconcileReport{ok: true}
 	resp, err := c.ListDomains(slug)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  ! domain reconcile: list failed: %v\n", err)
-		return
+		r.fail("! domain reconcile: list failed: %v", err)
+		return r
 	}
 
 	want := map[string]config.DomainConfig{}
 	for _, d := range desired {
 		host := strings.TrimSpace(d.Hostname)
 		if host == "" {
-			fmt.Fprintf(os.Stderr, "  ! domain reconcile: skipping [[domains]] entry with empty hostname\n")
+			r.note("! domain reconcile: skipping [[domains]] entry with empty hostname")
 			continue
 		}
 		if !strings.Contains(host, ".") {
-			fmt.Fprintf(os.Stderr, "  ! domain reconcile: skipping invalid hostname %q (must contain a dot)\n", host)
+			r.note("! domain reconcile: skipping invalid hostname %q (must contain a dot)", host)
 			continue
 		}
 		want[host] = d
@@ -318,19 +345,19 @@ func reconcileDomains(c *client.Client, slug string, desired []config.DomainConf
 			continue
 		}
 		if _, err := c.AddDomain(slug, client.AddDomainRequest{Hostname: host, RedirectTo: d.RedirectTo}); err != nil {
-			fmt.Fprintf(os.Stderr, "  ! domain reconcile: add %s failed: %v\n", host, err)
+			r.fail("! domain reconcile: add %s failed: %v", host, err)
 			addFailed++
 			continue
 		}
-		fmt.Printf("  + domain added: %s (run `sandbar domains verify %s` after DNS is set)\n", host, host)
+		r.note("+ domain added: %s (run `sandbar domains verify %s` after DNS is set)", host, host)
 	}
 
 	// Safety: same rationale as reconcileTrusts — if any add failed,
 	// skip every delete so a failed replacement doesn't leave the site
 	// without the domain a user expected to be there.
 	if addFailed > 0 {
-		fmt.Fprintf(os.Stderr, "  ! domain reconcile: %d add(s) failed — skipping delete phase to preserve existing domains\n", addFailed)
-		return
+		r.fail("! domain reconcile: %d add(s) failed — skipping delete phase to preserve existing domains", addFailed)
+		return r
 	}
 
 	for host, d := range have {
@@ -338,10 +365,10 @@ func reconcileDomains(c *client.Client, slug string, desired []config.DomainConf
 			continue
 		}
 		if err := c.DeleteDomain(slug, d.ID); err != nil {
-			fmt.Fprintf(os.Stderr, "  ! domain reconcile: delete %s failed: %v\n", host, err)
+			r.fail("! domain reconcile: delete %s failed: %v", host, err)
 			continue
 		}
-		fmt.Printf("  - domain removed: %s\n", host)
+		r.note("- domain removed: %s", host)
 	}
 
 	for host, d := range want {
@@ -351,18 +378,19 @@ func reconcileDomains(c *client.Client, slug string, desired []config.DomainConf
 		}
 		newRedirect := d.RedirectTo
 		if _, err := c.UpdateDomain(slug, a.ID, client.UpdateDomainRequest{RedirectTo: &newRedirect}); err != nil {
-			fmt.Fprintf(os.Stderr, "  ! domain reconcile: update %s redirect_to failed: %v\n", host, err)
+			r.fail("! domain reconcile: update %s redirect_to failed: %v", host, err)
 			continue
 		}
 		switch {
 		case newRedirect == "":
-			fmt.Printf("  ~ domain %s: cleared redirect (was %s)\n", host, a.RedirectTo)
+			r.note("~ domain %s: cleared redirect (was %s)", host, a.RedirectTo)
 		case a.RedirectTo == "":
-			fmt.Printf("  ~ domain %s: now redirects to %s\n", host, newRedirect)
+			r.note("~ domain %s: now redirects to %s", host, newRedirect)
 		default:
-			fmt.Printf("  ~ domain %s: redirect changed %s → %s\n", host, a.RedirectTo, newRedirect)
+			r.note("~ domain %s: redirect changed %s → %s", host, a.RedirectTo, newRedirect)
 		}
 	}
+	return r
 }
 
 // isProductionDeploy decides whether site-level reconcile should run.
@@ -394,11 +422,12 @@ func isProductionDeploy(branch, configuredProduction string) bool {
 // deleted. The reconcile already succeeded auth-wise, so the current
 // request finishes — but the next workflow run breaks. The CLI
 // surfaces the delete in its output so users see what changed.
-func reconcileTrusts(c *client.Client, slug string, desired []config.TrustConfig) {
+func reconcileTrusts(c *client.Client, slug string, desired []config.TrustConfig) reconcileReport {
+	r := reconcileReport{ok: true}
 	remote, err := c.ListTrusts(slug)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  ! trust reconcile: list failed: %v\n", err)
-		return
+		r.fail("! trust reconcile: list failed: %v", err)
+		return r
 	}
 
 	want := map[config.TrustKey]config.TrustConfig{}
@@ -425,12 +454,12 @@ func reconcileTrusts(c *client.Client, slug string, desired []config.TrustConfig
 			RefFilter:   t.EffectiveRefFilter(),
 			Environment: t.EffectiveEnvironment(),
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "  ! trust reconcile: add %s (ref=%s env=%s) failed: %v\n",
+			r.fail("! trust reconcile: add %s (ref=%s env=%s) failed: %v",
 				t.Repository, t.EffectiveRefFilter(), t.EffectiveEnvironment(), err)
 			addFailed++
 			continue
 		}
-		fmt.Printf("  + trust added: %s (ref=%s env=%s)\n",
+		r.note("+ trust added: %s (ref=%s env=%s)",
 			t.Repository, t.EffectiveRefFilter(), t.EffectiveEnvironment())
 	}
 
@@ -439,8 +468,8 @@ func reconcileTrusts(c *client.Client, slug string, desired []config.TrustConfig
 	// failed add followed by a successful delete would orphan them out
 	// of their own site (the auth trust would be gone).
 	if addFailed > 0 {
-		fmt.Fprintf(os.Stderr, "  ! trust reconcile: %d add(s) failed — skipping delete phase to preserve existing trusts\n", addFailed)
-		return
+		r.fail("! trust reconcile: %d add(s) failed — skipping delete phase to preserve existing trusts", addFailed)
+		return r
 	}
 
 	for key, t := range have {
@@ -448,11 +477,12 @@ func reconcileTrusts(c *client.Client, slug string, desired []config.TrustConfig
 			continue
 		}
 		if err := c.DeleteTrust(slug, t.ID); err != nil {
-			fmt.Fprintf(os.Stderr, "  ! trust reconcile: delete %s failed: %v\n", t.ID, err)
+			r.fail("! trust reconcile: delete %s failed: %v", t.ID, err)
 			continue
 		}
-		fmt.Printf("  - trust removed: %s (ref=%s env=%s)\n", t.Repository, t.RefFilter, t.Environment)
+		r.note("- trust removed: %s (ref=%s env=%s)", t.Repository, t.RefFilter, t.Environment)
 	}
+	return r
 }
 
 // reconcileSite syncs the mutable [site] fields — display name and
@@ -460,17 +490,18 @@ func reconcileTrusts(c *client.Client, slug string, desired []config.TrustConfig
 // config sets a value (legacy configs that only have the slug under
 // `site.name` skip the name sync entirely; see SiteConfig.DisplayName).
 // Failures are warnings, not fatal — the deploy already succeeded.
-func reconcileSite(c *client.Client, slug string, cfgSite config.SiteConfig) {
+func reconcileSite(c *client.Client, slug string, cfgSite config.SiteConfig) reconcileReport {
+	r := reconcileReport{ok: true}
 	desiredName := cfgSite.DisplayName()
 	desiredBranch := cfgSite.ProductionBranch
 	if desiredName == "" && desiredBranch == "" {
-		return
+		return r
 	}
 
 	site, err := c.GetSite(slug)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  ! site reconcile: get site failed: %v\n", err)
-		return
+		r.fail("! site reconcile: get site failed: %v", err)
+		return r
 	}
 
 	var req client.UpdateSiteRequest
@@ -481,20 +512,21 @@ func reconcileSite(c *client.Client, slug string, cfgSite config.SiteConfig) {
 		req.ProductionBranch = &desiredBranch
 	}
 	if req.Name == nil && req.ProductionBranch == nil {
-		return
+		return r
 	}
 
 	updated, err := c.UpdateSite(slug, req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  ! site reconcile: update failed: %v\n", err)
-		return
+		r.fail("! site reconcile: update failed: %v", err)
+		return r
 	}
 	if req.Name != nil {
-		fmt.Printf("  ~ site name: %q → %q\n", site.Name, updated.Name)
+		r.note("~ site name: %q → %q", site.Name, updated.Name)
 	}
 	if req.ProductionBranch != nil {
-		fmt.Printf("  ~ production branch: %s → %s\n", site.ProductionBranch, updated.ProductionBranch)
+		r.note("~ production branch: %s → %s", site.ProductionBranch, updated.ProductionBranch)
 	}
+	return r
 }
 
 // reconcilePreviewExpiry syncs the site's preview_expiry override
@@ -502,25 +534,27 @@ func reconcileSite(c *client.Client, slug string, cfgSite config.SiteConfig) {
 // when the server already matches; otherwise PATCHes the site. The
 // server is authoritative on parse/validation — we just send the
 // raw config string.
-func reconcilePreviewExpiry(c *client.Client, slug, desired string) {
+func reconcilePreviewExpiry(c *client.Client, slug, desired string) reconcileReport {
+	r := reconcileReport{ok: true}
 	site, err := c.GetSite(slug)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  ! preview_expiry reconcile: get site failed: %v\n", err)
-		return
+		r.fail("! preview_expiry reconcile: get site failed: %v", err)
+		return r
 	}
 	if site.PreviewExpiry == desired {
-		return
+		return r
 	}
 	if _, err := c.UpdateSite(slug, client.UpdateSiteRequest{PreviewExpiry: &desired}); err != nil {
-		fmt.Fprintf(os.Stderr, "  ! preview_expiry reconcile: update failed: %v\n", err)
-		return
+		r.fail("! preview_expiry reconcile: update failed: %v", err)
+		return r
 	}
 	switch {
 	case site.PreviewExpiry == "":
-		fmt.Printf("  ~ preview expiry: %s (was platform default)\n", desired)
+		r.note("~ preview expiry: %s (was platform default)", desired)
 	default:
-		fmt.Printf("  ~ preview expiry: %s → %s\n", site.PreviewExpiry, desired)
+		r.note("~ preview expiry: %s → %s", site.PreviewExpiry, desired)
 	}
+	return r
 }
 
 // runBuild executes cfg.Build.Command in workDir, streaming output to
